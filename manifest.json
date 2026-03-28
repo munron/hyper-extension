@@ -1,0 +1,22 @@
+{
+  "manifest_version": 3,
+  "name": "Hyper Extension",
+  "description": "Hyperliquid trading support extension",
+  "version": "0.1.0",
+  "permissions": ["sidePanel"],
+  "action": {
+    "default_title": "Open Hyper Extension"
+  },
+  "side_panel": {
+    "default_path": "src/sidepanel/index.html"
+  },
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "icons": {
+    "16": "public/icon16.png",
+    "48": "public/icon48.png",
+    "128": "public/icon128.png"
+  }
+}
