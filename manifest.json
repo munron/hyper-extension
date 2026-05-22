@@ -8,7 +8,8 @@
     "https://api-ui.hyperliquid.xyz/*",
     "https://app.hyperliquid.xyz/*",
     "https://api.hypurrscan.io/*",
-    "https://api.hyperdash.com/*"
+    "https://api.hyperdash.com/*",
+    "https://gql.opensea.io/*"
   ],
   "action": {
     "default_title": "Open Hyper Extension"

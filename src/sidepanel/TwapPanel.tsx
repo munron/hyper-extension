@@ -1,6 +1,14 @@
 import { useEffect, useState } from "react";
-import { fetchActiveTwaps, type TwapEntry } from "../lib/hypurrscan";
+import { fetchActiveTwaps, type Market, type TwapEntry } from "../lib/hypurrscan";
 import { getAssetIdsForCoin, type CoinIndex } from "../lib/coinMap";
+
+type MarketFilter = "all" | Market;
+
+const FILTERS: { id: MarketFilter; label: string }[] = [
+  { id: "all", label: "ALL" },
+  { id: "perp", label: "PERP" },
+  { id: "spot", label: "SPOT" },
+];
 
 function fmtSize(n: number): string {
   if (n >= 1e9) return (n / 1e9).toFixed(2) + "B";
@@ -31,11 +39,9 @@ function fmtEta(ms: number): string {
 
 type Props = { coin: string; coinIndex: CoinIndex | null; refreshKey: number };
 
-const COLLAPSED_COUNT = 5;
-
 export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
   const [entries, setEntries] = useState<TwapEntry[] | null>(null);
-  const [expanded, setExpanded] = useState(false);
+  const [filter, setFilter] = useState<MarketFilter>("all");
 
   useEffect(() => {
     if (!coinIndex) return;
@@ -43,10 +49,7 @@ export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
     const { perpAssetId, spotAssetIds } = getAssetIdsForCoin(coinIndex, coin);
     fetchActiveTwaps(perpAssetId, spotAssetIds)
       .then((es) => {
-        if (!cancelled) {
-          setEntries(es);
-          setExpanded(false);
-        }
+        if (!cancelled) setEntries(es);
       })
       .catch((e: unknown) => {
         if (!cancelled) {
@@ -59,25 +62,70 @@ export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
     };
   }, [coin, coinIndex, refreshKey]);
 
-  if (!entries || entries.length === 0) return null;
+  const FilterTabs = (
+    <div className="twap-filter" role="tablist">
+      {FILTERS.map((f) => (
+        <button
+          key={f.id}
+          type="button"
+          role="tab"
+          aria-selected={filter === f.id}
+          className={`twap-filter-btn ${filter === f.id ? "active" : ""}`}
+          onClick={() => setFilter(f.id)}
+        >
+          {f.label}
+        </button>
+      ))}
+    </div>
+  );
 
-  const buys = entries.filter((e) => e.isBuy);
-  const sells = entries.filter((e) => !e.isBuy);
+  if (!entries) {
+    return (
+      <section className="twap">
+        <div className="twap-head">
+          <span className="twap-head-label">Active TWAPs</span>
+          {FilterTabs}
+        </div>
+        <div className="twap-empty">Loading…</div>
+      </section>
+    );
+  }
+
+  const filtered =
+    filter === "all" ? entries : entries.filter((e) => e.market === filter);
+
+  if (entries.length === 0 || filtered.length === 0) {
+    return (
+      <section className="twap">
+        <div className="twap-head">
+          <span className="twap-head-label">Active TWAPs</span>
+          {FilterTabs}
+        </div>
+        <div className="twap-empty">
+          {entries.length === 0
+            ? `No active TWAPs for ${coin}`
+            : `No active ${filter.toUpperCase()} TWAPs for ${coin}`}
+        </div>
+      </section>
+    );
+  }
+
+  const buys = filtered.filter((e) => e.isBuy);
+  const sells = filtered.filter((e) => !e.isBuy);
   const buyUsd = buys.reduce((a, e) => a + e.remainingUsd, 0);
   const sellUsd = sells.reduce((a, e) => a + e.remainingUsd, 0);
   const totalUsd = buyUsd + sellUsd;
   const buyPct = totalUsd === 0 ? 50 : (buyUsd / totalUsd) * 100;
   const sellPct = 100 - buyPct;
 
-  const sorted = [...entries].sort((a, b) => b.remainingUsd - a.remainingUsd);
-  const visible = expanded ? sorted : sorted.slice(0, COLLAPSED_COUNT);
-  const hiddenCount = sorted.length - visible.length;
+  const sorted = [...filtered].sort((a, b) => b.remainingUsd - a.remainingUsd);
 
   return (
     <section className="twap">
       <div className="twap-head">
         <span className="twap-head-label">Active TWAPs</span>
-        <span className="twap-head-count">{entries.length}</span>
+        <span className="twap-head-count">{filtered.length}</span>
+        {FilterTabs}
       </div>
 
       <div className="twap-totals">
@@ -105,7 +153,7 @@ export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
       </div>
 
       <ul className="twap-list">
-        {visible.map((e) => (
+        {sorted.map((e) => (
           <li key={e.hash} className={e.isBuy ? "buy" : "sell"}>
             <a
               className="twap-row-link"
@@ -128,16 +176,6 @@ export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
           </li>
         ))}
       </ul>
-
-      {sorted.length > COLLAPSED_COUNT && (
-        <button
-          type="button"
-          className="twap-toggle"
-          onClick={() => setExpanded((v) => !v)}
-        >
-          {expanded ? "Show less ▲" : `Show ${hiddenCount} more ▼`}
-        </button>
-      )}
     </section>
   );
 }

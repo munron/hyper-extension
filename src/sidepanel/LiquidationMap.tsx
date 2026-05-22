@@ -146,8 +146,26 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
     };
   }, [data]);
 
-  if (!coinIndex) return null;
-  if (coinIndex.perpAssetIdByCoin[coin] === undefined) return null;
+  if (!coinIndex) {
+    return (
+      <section className="liq">
+        <div className="liq-head">
+          <span className="liq-head-label">Liquidation Map</span>
+        </div>
+        <div className="liq-status">Loading…</div>
+      </section>
+    );
+  }
+  if (coinIndex.perpAssetIdByCoin[coin] === undefined) {
+    return (
+      <section className="liq">
+        <div className="liq-head">
+          <span className="liq-head-label">Liquidation Map</span>
+        </div>
+        <div className="liq-status">No perpetual market for {coin}</div>
+      </section>
+    );
+  }
   if (loading && !data) {
     return (
       <section className="liq">
@@ -160,17 +178,16 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
     );
   }
   if (error || !data || !view) {
-    if (error) {
-      return (
-        <section className="liq">
-          <div className="liq-head">
-            <span className="liq-head-label">Liquidation Map</span>
-          </div>
-          <div className="liq-status liq-error">Failed to load</div>
-        </section>
-      );
-    }
-    return null;
+    return (
+      <section className="liq">
+        <div className="liq-head">
+          <span className="liq-head-label">Liquidation Map</span>
+        </div>
+        <div className={`liq-status ${error ? "liq-error" : ""}`}>
+          {error ? "Failed to load" : "No liquidation data"}
+        </div>
+      </section>
+    );
   }
 
   const topLong = data.topLongLiquidations.slice(0, 3);

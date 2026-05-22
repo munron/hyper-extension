@@ -15,8 +15,23 @@ import {
 import { extractCoinFromUrl } from "../lib/symbol";
 import TwapPanel from "./TwapPanel";
 import LiquidationMap from "./LiquidationMap";
+import HypurrNftChart from "./HypurrNftChart";
 
 const DEFAULT_RAW_COIN = "HYPE";
+
+type TabId = "twaps" | "liquidation" | "nft";
+
+type TabDef = {
+  id: TabId;
+  label: string;
+  isAvailable: (ctx: { coin: string; hasPerp: boolean }) => boolean;
+};
+
+const TABS: TabDef[] = [
+  { id: "twaps", label: "TWAPs", isAvailable: () => true },
+  { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasPerp },
+  { id: "nft", label: "NFT", isAvailable: (c) => c.coin === "HYPE" },
+];
 
 async function readActiveCoin(): Promise<string> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -33,6 +48,7 @@ export default function App() {
   const [coinIndex, setCoinIndex] = useState<CoinIndex | null>(null);
   const [indexBuilding, setIndexBuilding] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
+  const [activeTab, setActiveTab] = useState<TabId>("twaps");
   // const [annotation, setAnnotation] = useState<PerpAnnotation | null>(null);
   // const [detailLoading, setDetailLoading] = useState(false);
   // const [meta, setMeta] = useState<Meta | null>(null);
@@ -160,6 +176,12 @@ export default function App() {
     <div className="container">
       <header className="header">
         <div className="title-row">
+          <img
+            className="coin-icon"
+            src={`https://app.hyperliquid.xyz/coins/${encodeURIComponent(resolvedCoinId)}.svg`}
+            alt=""
+            aria-hidden="true"
+          />
           <h1>{displayName}</h1>
           {annotation?.category && <span className="badge">{annotation.category}</span>}
         </div>
@@ -172,9 +194,26 @@ export default function App() {
         */}
       </header>
 
-      <TwapPanel coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
+      <TabBar
+        activeTab={activeTab}
+        onChange={setActiveTab}
+        coin={resolvedCoinId}
+        coinIndex={coinIndex}
+      />
 
-      <LiquidationMap coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
+      {activeTab === "twaps" && (
+        <TwapPanel coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
+      )}
+      {activeTab === "liquidation" && (
+        <LiquidationMap
+          coin={resolvedCoinId}
+          coinIndex={coinIndex}
+          refreshKey={refreshKey}
+        />
+      )}
+      {activeTab === "nft" && (
+        <HypurrNftChart coin={resolvedCoinId} refreshKey={refreshKey} />
+      )}
 
       {/*
       {indexBuilding && !coinIndex && (
@@ -230,5 +269,42 @@ export default function App() {
       )}
       */}
     </div>
+  );
+}
+
+type TabBarProps = {
+  activeTab: TabId;
+  onChange: (id: TabId) => void;
+  coin: string;
+  coinIndex: CoinIndex | null;
+};
+
+function TabBar({ activeTab, onChange, coin, coinIndex }: TabBarProps) {
+  const hasPerp = coinIndex
+    ? coinIndex.perpAssetIdByCoin[coin] !== undefined
+    : true;
+  const visible = TABS.filter((t) => t.isAvailable({ coin, hasPerp }));
+
+  useEffect(() => {
+    if (!visible.some((t) => t.id === activeTab)) {
+      onChange(visible[0]?.id ?? "twaps");
+    }
+  }, [activeTab, visible, onChange]);
+
+  return (
+    <nav className="tabs" role="tablist">
+      {visible.map((t) => (
+        <button
+          key={t.id}
+          type="button"
+          role="tab"
+          aria-selected={activeTab === t.id}
+          className={`tab ${activeTab === t.id ? "active" : ""}`}
+          onClick={() => onChange(t.id)}
+        >
+          {t.label}
+        </button>
+      ))}
+    </nav>
   );
 }
