@@ -3,7 +3,13 @@
   "name": "Hyper Extension",
   "description": "Hyperliquid trading support extension",
   "version": "0.1.0",
-  "permissions": ["sidePanel"],
+  "permissions": ["sidePanel", "tabs", "storage"],
+  "host_permissions": [
+    "https://api-ui.hyperliquid.xyz/*",
+    "https://app.hyperliquid.xyz/*",
+    "https://api.hypurrscan.io/*",
+    "https://api.hyperdash.com/*"
+  ],
   "action": {
     "default_title": "Open Hyper Extension"
   },

@@ -1,17 +1,234 @@
-import { useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  // fetchMeta,
+  // fetchPerpAnnotation,
+  // type Meta,
+  // type MetaUniverseAsset,
+  type PerpAnnotation,
+} from "../lib/hyperliquid";
+import {
+  buildCoinIndex,
+  getCoinIndex,
+  resolveCoinId,
+  type CoinIndex,
+} from "../lib/coinMap";
+import { extractCoinFromUrl } from "../lib/symbol";
+import TwapPanel from "./TwapPanel";
+import LiquidationMap from "./LiquidationMap";
+
+const DEFAULT_RAW_COIN = "HYPE";
+
+async function readActiveCoin(): Promise<string> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  return extractCoinFromUrl(tab?.url) ?? DEFAULT_RAW_COIN;
+}
+
+// function findUniverseAsset(meta: Meta | null, coinId: string): MetaUniverseAsset | null {
+//   if (!meta) return null;
+//   return meta.universe.find((a) => a.name === coinId) ?? null;
+// }
 
 export default function App() {
-  const [count, setCount] = useState(0);
+  const [rawCoin, setRawCoin] = useState(DEFAULT_RAW_COIN);
+  const [coinIndex, setCoinIndex] = useState<CoinIndex | null>(null);
+  const [indexBuilding, setIndexBuilding] = useState(false);
+  const [refreshKey, setRefreshKey] = useState(0);
+  // const [annotation, setAnnotation] = useState<PerpAnnotation | null>(null);
+  // const [detailLoading, setDetailLoading] = useState(false);
+  // const [meta, setMeta] = useState<Meta | null>(null);
+  // const [error, setError] = useState<string | null>(null);
+  const rebuildTriedRef = useRef(false);
+
+  const syncFromActiveTab = useCallback(async () => {
+    const next = await readActiveCoin();
+    setRawCoin((prev) => (prev === next ? prev : next));
+  }, []);
+
+  useEffect(() => {
+    void syncFromActiveTab();
+
+    const bump = () => setRefreshKey((k) => k + 1);
+    const onActivated = () => {
+      void syncFromActiveTab();
+      bump();
+    };
+    const onUpdated: Parameters<typeof chrome.tabs.onUpdated.addListener>[0] = (_id, changeInfo) => {
+      if (changeInfo.url) {
+        void syncFromActiveTab();
+        bump();
+      }
+    };
+    const onFocusChanged = (windowId: number) => {
+      if (windowId !== chrome.windows.WINDOW_ID_NONE) {
+        void syncFromActiveTab();
+        bump();
+      }
+    };
+
+    chrome.tabs.onActivated.addListener(onActivated);
+    chrome.tabs.onUpdated.addListener(onUpdated);
+    chrome.windows.onFocusChanged.addListener(onFocusChanged);
+    return () => {
+      chrome.tabs.onActivated.removeListener(onActivated);
+      chrome.tabs.onUpdated.removeListener(onUpdated);
+      chrome.windows.onFocusChanged.removeListener(onFocusChanged);
+    };
+  }, [syncFromActiveTab]);
+
+  // Load coin index (cache or fetch perpConciseAnnotations) on mount.
+  useEffect(() => {
+    let cancelled = false;
+    setIndexBuilding(true);
+    getCoinIndex()
+      .then((next) => {
+        if (!cancelled) setCoinIndex(next);
+      })
+      .catch((e: unknown) => console.error("Failed to load coin index", e))
+      .finally(() => {
+        if (!cancelled) setIndexBuilding(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // // Load perp meta universe once.
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   fetchMeta()
+  //     .then((m) => {
+  //       if (!cancelled) setMeta(m);
+  //     })
+  //     .catch((e: unknown) => {
+  //       if (!cancelled) console.error("Failed to fetch meta", e);
+  //     });
+  //   return () => {
+  //     cancelled = true;
+  //   };
+  // }, []);
+
+  const resolvedCoinId = resolveCoinId(coinIndex, rawCoin);
+
+  // // Show concise annotation immediately, then fetch detail (description) in background.
+  // useEffect(() => {
+  //   let cancelled = false;
+  //   setError(null);
+  //
+  //   const concise = coinIndex?.annotations[resolvedCoinId] ?? null;
+  //   setAnnotation(concise);
+  //
+  //   setDetailLoading(true);
+  //   fetchPerpAnnotation(resolvedCoinId)
+  //     .then((detail) => {
+  //       if (cancelled) return;
+  //       if (!detail) return; // keep concise (or null)
+  //       setAnnotation((prev) => ({ ...(prev ?? {}), ...detail }));
+  //     })
+  //     .catch((e: unknown) => {
+  //       if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+  //     })
+  //     .finally(() => {
+  //       if (!cancelled) setDetailLoading(false);
+  //     });
+  //   return () => {
+  //     cancelled = true;
+  //   };
+  // }, [resolvedCoinId, coinIndex]);
+
+  // If we still can't resolve a DEX-style URL symbol, refresh the index once (cache may be stale).
+  useEffect(() => {
+    if (!coinIndex || indexBuilding) return;
+    if (rebuildTriedRef.current) return;
+    if (!rawCoin.includes(":")) return;
+    if (coinIndex.annotations[rawCoin]) return;
+    if (resolveCoinId(coinIndex, rawCoin) !== rawCoin) return;
+    rebuildTriedRef.current = true;
+    setIndexBuilding(true);
+    buildCoinIndex()
+      .then((next) => setCoinIndex(next))
+      .catch((e: unknown) => console.error("Failed to rebuild coin index", e))
+      .finally(() => setIndexBuilding(false));
+  }, [coinIndex, rawCoin, indexBuilding]);
+
+  const annotation: PerpAnnotation | null = coinIndex?.annotations[resolvedCoinId] ?? null;
+  // const universeAsset = findUniverseAsset(meta, resolvedCoinId);
+  const displayName = annotation?.displayName ?? resolvedCoinId;
+  // const hasAnnotation =
+  //   annotation && (annotation.description || annotation.category || (annotation.keywords?.length ?? 0) > 0);
 
   return (
     <div className="container">
-      <h1>Hyper Extension</h1>
-      <p>Hyperliquid Trading Support</p>
-      <div className="card">
-        <button onClick={() => setCount((c) => c + 1)}>
-          Count: {count}
-        </button>
-      </div>
+      <header className="header">
+        <div className="title-row">
+          <h1>{displayName}</h1>
+          {annotation?.category && <span className="badge">{annotation.category}</span>}
+        </div>
+
+        {/*
+        <div className="coin-id">
+          {resolvedCoinId}
+          {resolvedCoinId !== rawCoin && <span className="raw"> ← {rawCoin}</span>}
+        </div>
+        */}
+      </header>
+
+      <TwapPanel coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
+
+      <LiquidationMap coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
+
+      {/*
+      {indexBuilding && !coinIndex && (
+        <div className="status">Loading symbol index…</div>
+      )}
+
+      {detailLoading && !hasAnnotation && !indexBuilding && (
+        <div className="status">Loading…</div>
+      )}
+
+      {error && (
+        <div className="status error">
+          <strong>Failed to load annotation.</strong>
+          <div>{error}</div>
+        </div>
+      )}
+
+      {hasAnnotation && (
+        <>
+          {annotation?.description && <p className="description">{annotation.description}</p>}
+
+          {annotation?.keywords && annotation.keywords.length > 0 && (
+            <div className="keywords">
+              {annotation.keywords.map((k) => (
+                <span key={k} className="keyword">
+                  {k}
+                </span>
+              ))}
+            </div>
+          )}
+        </>
+      )}
+
+      {!hasAnnotation && universeAsset && !detailLoading && (
+        <dl className="kv">
+          <dt>Symbol</dt>
+          <dd>{universeAsset.name}</dd>
+          <dt>Max leverage</dt>
+          <dd>{universeAsset.maxLeverage}x</dd>
+          <dt>Size decimals</dt>
+          <dd>{universeAsset.szDecimals}</dd>
+          {universeAsset.onlyIsolated && (
+            <>
+              <dt>Margin</dt>
+              <dd>Isolated only</dd>
+            </>
+          )}
+        </dl>
+      )}
+
+      {!hasAnnotation && !universeAsset && !detailLoading && !indexBuilding && (
+        <div className="status">No info available for {resolvedCoinId}.</div>
+      )}
+      */}
     </div>
   );
 }
