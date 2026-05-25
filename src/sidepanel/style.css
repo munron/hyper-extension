@@ -86,11 +86,30 @@ body {
   gap: 4px;
 }
 
+.header-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 .title-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: wrap;
+  min-width: 0;
+}
+
+/* Hypurr brand mark, top-right of the panel header. */
+.brand-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  background: var(--bg-tile);
+  object-fit: cover;
+  flex-shrink: 0;
 }
 
 h1 {
@@ -578,15 +597,64 @@ h1 {
   background: rgba(0, 0, 0, 0.22);
   border-radius: var(--r-sm);
   border: 1px solid var(--line);
+  cursor: crosshair;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
-.liq-bar-long { fill: var(--sell); opacity: 0.78; }
-.liq-bar-short { fill: var(--buy); opacity: 0.78; }
+/* When a bar is under the cursor, signal that the chart is clickable. */
+.liq-chart.liq-chart-armed {
+  cursor: pointer;
+  border-color: rgba(255, 255, 255, 0.18);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.04) inset;
+}
+
+.liq-bar-long { fill: var(--sell); opacity: 0.7; transition: opacity 0.1s ease; }
+.liq-bar-short { fill: var(--buy); opacity: 0.7; transition: opacity 0.1s ease; }
+
+.liq-bar-hover {
+  opacity: 1 !important;
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 0.6;
+  animation: liq-bar-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes liq-bar-pulse {
+  0%, 100% {
+    stroke: rgba(255, 255, 255, 0.55);
+    stroke-width: 0.5;
+  }
+  50% {
+    stroke: rgba(255, 255, 255, 1);
+    stroke-width: 1.1;
+  }
+}
+
+.liq-bar-selected {
+  opacity: 1 !important;
+  stroke: var(--mint-bright, #7df9c8);
+  stroke-width: 1.1;
+  filter: drop-shadow(0 0 3px rgba(125, 249, 200, 0.45));
+}
 
 .liq-cur-line {
   stroke: var(--warn);
   stroke-width: 1.2;
   stroke-dasharray: 3 3;
+}
+
+.liq-hover-line {
+  stroke: rgba(255, 255, 255, 0.55);
+  stroke-width: 0.5;
+  stroke-dasharray: 1.5 2.5;
+  pointer-events: none;
+}
+
+.liq-sel-line {
+  stroke: var(--mint-bright, #7df9c8);
+  stroke-width: 0.8;
+  stroke-dasharray: 2 2;
+  opacity: 0.75;
+  pointer-events: none;
 }
 
 .liq-axis {
@@ -609,11 +677,445 @@ h1 {
   border: 1px solid rgba(240, 163, 82, 0.3);
 }
 
+.liq-interactive {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---- Legend toggles (Stop Order Map) ---- */
+.liq-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.liq-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+}
+
+.liq-legend-item:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--bg-hover);
+}
+
+.liq-legend-item.off {
+  opacity: 0.4;
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+
+.liq-legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  flex: none;
+}
+
+.liq-legend-item.sell .liq-legend-swatch {
+  background: var(--sell);
+  opacity: 0.7;
+}
+.liq-legend-item.buy .liq-legend-swatch {
+  background: var(--buy);
+  opacity: 0.7;
+}
+/* Cumulative swatches: render as a tinted bar with a stroke on top to
+   hint that they map to a line series rather than a filled bar. */
+.liq-legend-item.cum-sell .liq-legend-swatch {
+  background: transparent;
+  border-top: 2px solid var(--sell);
+  border-radius: 0;
+  height: 6px;
+  margin-top: 2px;
+}
+.liq-legend-item.cum-buy .liq-legend-swatch {
+  background: transparent;
+  border-top: 2px solid var(--buy);
+  border-radius: 0;
+  height: 6px;
+  margin-top: 2px;
+}
+
+/* ---- Cumulative line paths in the chart ---- */
+.liq-cum-sell-line {
+  fill: none;
+  stroke: var(--sell);
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.liq-cum-buy-line {
+  fill: none;
+  stroke: var(--buy);
+  stroke-width: 1.1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.85;
+  pointer-events: none;
+}
+
+.liq-inspector {
+  min-height: 76px;
+  padding: 9px 11px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.liq-inspector-hint {
+  font-size: 0.72rem;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 6px 2px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.liq-inspector-hint-icon {
+  color: var(--mint-bright, #7df9c8);
+  font-style: normal;
+  font-weight: 700;
+  opacity: 0.85;
+}
+
+/* When previewing a hovered (not yet selected) band, give the inspector
+   a subtle dashed border so the user can tell at a glance it's not the
+   final pinned view. */
+.liq-inspector.liq-inspector-preview {
+  border-style: dashed;
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.liq-inspector.liq-inspector-pinned {
+  border-color: rgba(125, 249, 200, 0.45);
+  box-shadow: 0 0 0 1px rgba(125, 249, 200, 0.18) inset;
+}
+
+/* CTA shown in the preview state — "click this band to load details". */
+.liq-inspector-cta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.7rem;
+  color: var(--mint-bright, #7df9c8);
+  background: rgba(125, 249, 200, 0.08);
+  border: 1px dashed rgba(125, 249, 200, 0.35);
+  border-radius: var(--r-xs);
+  padding: 5px 8px;
+  animation: liq-cta-pulse 1.4s ease-in-out infinite;
+}
+
+.liq-inspector-cta-icon {
+  font-weight: 700;
+}
+
+@keyframes liq-cta-pulse {
+  0%, 100% { opacity: 0.78; }
+  50%      { opacity: 1; }
+}
+
+.liq-inspector-close {
+  background: transparent;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+  font-size: 0.9rem;
+  line-height: 1;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  padding: 0;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.liq-inspector-close:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.4);
+  background: var(--bg-hover);
+}
+
+.liq-inspector-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.72rem;
+  color: var(--text);
+}
+
+.liq-inspector-tag {
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  padding: 2px 6px;
+  border-radius: var(--r-xs);
+  font-family: var(--font-sans);
+}
+
+.liq-inspector-tag.long,
+.liq-inspector-tag.sell {
+  color: var(--sell);
+  background: var(--sell-soft);
+  border: 1px solid var(--sell-line);
+}
+
+.liq-inspector-tag.short,
+.liq-inspector-tag.buy {
+  color: var(--buy);
+  background: var(--buy-soft);
+  border: 1px solid var(--buy-line);
+}
+
+.liq-inspector-range {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.liq-inspector-dist {
+  font-size: 0.66rem;
+  color: var(--text-mute);
+}
+
+.liq-inspector-dist.down { color: var(--sell); }
+.liq-inspector-dist.up { color: var(--buy); }
+
+.liq-inspector-spacer {
+  flex: 1;
+}
+
+/* Styles for the past-3d liq stat — kept commented out alongside the
+   JSX that used them, so the block can be re-enabled in one shot.
+.liq-inspector-value {
+  font-weight: 700;
+  color: var(--mint-bright);
+  line-height: 1.1;
+}
+
+.liq-inspector-stat {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 1px;
+  line-height: 1;
+  cursor: help;
+}
+
+.liq-inspector-stat-label {
+  font-size: 0.55rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  opacity: 0.75;
+  line-height: 1;
+}
+*/
+
+.liq-inspector-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.66rem;
+  color: var(--text-mute);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.liq-inspector-meta .long { color: var(--sell); }
+.liq-inspector-meta .short { color: var(--buy); }
+
+.liq-inspector-meta-sep {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+.liq-inspector-empty {
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  padding: 4px 2px 2px;
+}
+
+.liq-inspector-empty.liq-inspector-err {
+  color: #ffa198;
+}
+
+.liq-inspector-notice {
+  font-size: 0.66rem;
+  color: var(--text-mute);
+  font-style: italic;
+  padding: 2px 2px 4px;
+  line-height: 1.3;
+}
+
+.liq-inspector-more-hint {
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  padding: 4px 2px 2px;
+}
+
+.liq-inspector-traders {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  margin-top: 2px;
+}
+
+.liq-inspector-traders li {
+  border-top: 1px solid var(--line);
+  font-size: 0.7rem;
+}
+
+.liq-inspector-traders li:first-child {
+  border-top: none;
+}
+
+/* When the user expands the full position list, cap the height and
+   let it scroll so the inspector never blows up the panel. */
+.liq-inspector-traders.liq-inspector-traders-scroll {
+  max-height: 240px;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line) transparent;
+}
+
+.liq-inspector-traders.liq-inspector-traders-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+
+.liq-inspector-traders.liq-inspector-traders-scroll::-webkit-scrollbar-thumb {
+  background: var(--line);
+  border-radius: 3px;
+}
+
+.liq-inspector-toggle {
+  margin-top: 4px;
+  width: 100%;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text-dim);
+  font-family: var(--font-sans);
+  font-size: 0.68rem;
+  letter-spacing: 0.04em;
+  padding: 5px 8px;
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+
+.liq-inspector-toggle:hover {
+  color: var(--text);
+  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--bg-hover);
+}
+
+.liq-inspector-trader {
+  display: grid;
+  /* Price first (the trader's primary question), then size, then a
+     dim address column that flexes / truncates as needed. */
+  grid-template-columns: auto auto 1fr;
+  gap: 12px;
+  align-items: baseline;
+  padding: 6px 6px;
+  margin: 0 -6px;
+  border-radius: var(--r-xs);
+  color: inherit;
+  text-decoration: none;
+  transition: background 0.12s ease;
+}
+
+/* Stop-order rows prepend a per-row direction indicator (because a
+   single band can hold mixed buy and sell stops). When that span is
+   present, extend the grid with one extra leading column. */
+.liq-inspector-trader:has(> .liq-inspector-trader-side) {
+  grid-template-columns: 10px auto auto 1fr;
+  gap: 10px;
+}
+
+.liq-inspector-trader:hover {
+  background: var(--bg-hover);
+}
+
+.liq-inspector-trader-side {
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-align: center;
+  line-height: 1;
+}
+
+.liq-inspector-trader-side.buy { color: var(--buy); }
+.liq-inspector-trader-side.sell { color: var(--sell); }
+
+.liq-inspector-trader-price {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+
+.liq-inspector-trader-size {
+  font-family: var(--font-mono);
+  color: var(--mint-bright);
+  font-weight: 600;
+  font-size: 0.76rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.liq-inspector-trader-addr {
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  font-size: 0.64rem;
+  opacity: 0.7;
+  text-align: right;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  min-width: 0;
+}
+
+.liq-top-section {
+  margin-top: 2px;
+}
+
+.liq-top-cap {
+  font-size: 0.6rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  padding: 0 2px 4px;
+}
+
 .liq-top {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 8px;
-  margin-top: 2px;
 }
 
 .liq-top-list {
@@ -634,7 +1136,7 @@ h1 {
 
 .liq-top-link {
   display: grid;
-  grid-template-columns: 10px 1fr auto;
+  grid-template-columns: 26px 1fr auto;
   grid-template-rows: auto auto;
   align-items: center;
   column-gap: 6px;
@@ -651,31 +1153,82 @@ h1 {
   background: var(--bg-hover);
 }
 
+/* Panic-level cat: nearest liquidation/stop line → most frightened.
+   Emoji reads clearly even at this size and stays colorful. */
+.liq-top-panic {
+  grid-row: 1 / span 2;
+  grid-column: 1;
+  font-size: 1.15rem;
+  line-height: 1;
+  text-align: center;
+  font-family: "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji",
+    sans-serif;
+}
+
+/* The closest position gets a gentle attention-grabbing pulse. */
+.liq-top-panic.panic-3 {
+  animation: liq-panic-pulse 1.3s ease-in-out infinite;
+}
+
+@keyframes liq-panic-pulse {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.2);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .liq-top-panic.panic-3 {
+    animation: none;
+  }
+}
+
 .liq-top-list .long .liq-top-side { color: var(--sell); }
 .liq-top-list .short .liq-top-side { color: var(--buy); }
 
 .liq-top-side {
-  grid-row: 1 / span 2;
-  font-size: 0.68rem;
-  text-align: center;
+  font-size: 0.62rem;
 }
 
-.liq-top-addr {
-  font-family: var(--font-mono);
-  font-size: 0.68rem;
-  color: var(--text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+/* Line 1: direction + price level + distance from current price (the
+   actionable info, since the list is now sorted by proximity). */
+.liq-top-lvl {
+  grid-row: 1;
+  grid-column: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
 }
 
 .liq-top-price {
   font-family: var(--font-mono);
-  font-size: 0.62rem;
-  color: var(--text-dim);
+  font-size: 0.72rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+
+.liq-top-dist {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/* Line 2: address, demoted to muted secondary text. */
+.liq-top-addr {
   grid-row: 2;
   grid-column: 2;
-  font-variant-numeric: tabular-nums;
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .liq-top-size {
