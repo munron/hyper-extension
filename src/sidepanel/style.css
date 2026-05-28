@@ -36,6 +36,12 @@
   --warn: #f0a352;
   --warn-soft: rgba(240, 163, 82, 0.16);
 
+  /* Funding chart blues, same family: --fr-apr is the live funding line
+     (solid, more saturated so it pops); --fr-ref is the muted average line
+     (dashed). */
+  --fr-apr: #5b8def;
+  --fr-ref: #7aa2f7;
+
   /* Radii */
   --r-xs: 4px;
   --r-sm: 8px;
@@ -1367,4 +1373,909 @@ h1 {
   background: var(--bg-tile);
   border: 1px solid var(--line);
   color: var(--text-mute);
+}
+
+/* ===========================================================
+   Funding rate panel
+   =========================================================== */
+/* ===== Cross-Exchange Funding comparison (currently dummy data) ===== */
+.fc {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fc-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fc-head-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.fc-demo {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+}
+
+/* --- arb summary --- */
+.fc-arb {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 11px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.fc-arb-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.fc-arb-spread {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.fc-arb-spread-label {
+  font-size: 0.56rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.fc-best {
+  margin-left: 5px;
+  font-size: 0.92em;
+  letter-spacing: 0.04em;
+  color: var(--fr-ref);
+}
+
+.fc-arb-spread-val {
+  font-family: var(--font-mono);
+  font-size: 1.15rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.fc-arb-spread-val.up {
+  color: var(--buy);
+}
+.fc-arb-spread-val.down {
+  color: var(--sell);
+}
+
+.fc-arb-spread-unit {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
+.fc-arb-persist {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.fc-persist {
+  font-size: 0.58rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  white-space: nowrap;
+  cursor: default;
+}
+.fc-persist.persistent {
+  color: var(--buy);
+  background: var(--buy-soft);
+}
+.fc-persist.building {
+  color: var(--warn);
+  background: var(--warn-soft);
+}
+.fc-persist.transient,
+.fc-persist.choppy {
+  color: var(--text-mute);
+  background: var(--bg-tile-strong);
+}
+
+.fc-spark {
+  width: 64px;
+  height: 22px;
+  flex: none;
+}
+.fc-spark-line {
+  fill: none;
+  stroke: var(--fr-ref);
+  stroke-width: 1.2;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.85;
+}
+.fc-spark-zero {
+  stroke: var(--line-strong);
+  stroke-width: 0.6;
+  stroke-dasharray: 2 2;
+}
+
+.fc-arb-legs {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px 8px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-mute);
+}
+.fc-leg b {
+  font-weight: 700;
+}
+.fc-leg.long b {
+  color: var(--buy);
+}
+.fc-leg.short b {
+  color: var(--sell);
+}
+.fc-flip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 18px;
+  padding: 0;
+  font-size: 0.78rem;
+  line-height: 1;
+  color: var(--text-mute);
+  background: var(--bg-tile-strong);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  cursor: pointer;
+  transition: color 0.12s ease, border-color 0.12s ease, background 0.12s ease;
+}
+.fc-flip:hover {
+  color: var(--text);
+  border-color: var(--line-strong);
+  background: var(--bg-hover);
+}
+
+/* --- 72h spread-history chart --- */
+.fc-chart {
+  margin: 2px 0 6px;
+}
+.fc-chart-status {
+  margin: 2px 0 6px;
+  padding: 10px 4px;
+  text-align: center;
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+.fc-chart-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 2px 2px;
+  font-size: 0.55rem;
+  color: var(--text-mute);
+}
+.fc-chart-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.fc-chart-swatch {
+  width: 9px;
+  height: 2px;
+  border-radius: 1px;
+}
+.fc-chart-key.hl .fc-chart-swatch {
+  background: var(--fr-ref);
+}
+.fc-chart-key.cp .fc-chart-swatch {
+  background: var(--warn);
+}
+.fc-chart-span {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  color: var(--text-dim);
+  letter-spacing: 0.04em;
+}
+.fc-chart-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.fc-chart-grid {
+  stroke: var(--line);
+  stroke-width: 0.5;
+  opacity: 0.5;
+}
+.fc-chart-zero {
+  stroke: var(--line-strong);
+  stroke-width: 0.75;
+}
+.fc-chart-band {
+  fill: var(--warn);
+  opacity: 0.09;
+}
+.fc-chart-line {
+  fill: none;
+  stroke-width: 1.3;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+.fc-chart-line.hl {
+  stroke: var(--fr-ref);
+}
+.fc-chart-line.cp {
+  stroke: var(--warn);
+}
+.fc-chart-avg {
+  fill: none;
+  stroke-width: 1.1;
+  stroke-dasharray: 4 3;
+  opacity: 0.85;
+}
+.fc-chart-avg.hl {
+  stroke: var(--fr-ref);
+}
+.fc-chart-avg.cp {
+  stroke: var(--warn);
+}
+.fc-chart-avg-pill rect {
+  fill-opacity: 0.92;
+}
+.fc-chart-avg-pill text {
+  fill: #0a0a0a;
+  font-family: var(--font-mono);
+  font-size: 7.5px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+.fc-chart-avg-pill.hl rect {
+  fill: var(--fr-ref);
+}
+.fc-chart-avg-pill.cp rect {
+  fill: var(--warn);
+}
+.fc-chart-axis {
+  fill: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 7px;
+}
+.fc-chart-xaxis {
+  dominant-baseline: middle;
+}
+
+/* --- per-venue diverging bars --- */
+.fc-venues {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.fc-venues-divider {
+  height: 1px;
+  background: var(--line);
+  margin: 3px 4px;
+}
+
+/* Row = the venue (button/anchor) plus a launch link to its trading page. */
+.fc-venue-row {
+  display: flex;
+  align-items: stretch;
+  gap: 3px;
+}
+.fc-venue-row > .fc-venue {
+  flex: 1 1 auto;
+  width: auto;
+  min-width: 0;
+}
+
+.fc-venue {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+
+/* ↗ deep-link to the venue's trading page for the active coin. */
+.fc-venue-launch {
+  flex: none;
+  width: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  color: var(--text-dim);
+  text-decoration: none;
+  font-size: 0.72rem;
+  line-height: 1;
+  transition: color 0.12s ease, background 0.12s ease, border-color 0.12s ease;
+}
+.fc-venue-launch:hover {
+  color: var(--fr-ref);
+  background: var(--bg-hover);
+  border-color: var(--line);
+}
+.fc-venue-launch.empty {
+  pointer-events: none;
+}
+/* Counterparty rows are buttons; the HL anchor row is a static div. */
+button.fc-venue {
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+button.fc-venue:hover {
+  background: var(--bg-hover);
+}
+.fc-venue.active {
+  background: rgba(122, 162, 247, 0.12);
+  border-color: rgba(122, 162, 247, 0.34);
+}
+.fc-venue.hl {
+  background: rgba(122, 162, 247, 0.08);
+}
+
+.fc-venue-name {
+  flex: none;
+  width: 66px;
+  font-size: 0.63rem;
+  color: var(--text);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fc-venue.hl .fc-venue-name {
+  color: var(--fr-ref);
+  font-weight: 600;
+}
+.fc-venue.active .fc-venue-name {
+  font-weight: 600;
+}
+
+.fc-venue-kind {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  color: var(--text-dim);
+  border: 1px solid var(--line);
+}
+.fc-venue-kind.CEX {
+  color: var(--warn);
+  border-color: var(--warn-soft);
+}
+.fc-venue-kind.DEX {
+  color: var(--buy);
+  border-color: var(--buy-line);
+}
+
+.fc-venue-track {
+  position: relative;
+  flex: 1 1 auto;
+  height: 13px;
+  min-width: 34px;
+  background: var(--bg-tile-strong);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.fc-venue-center {
+  position: absolute;
+  left: 50%;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--line-strong);
+}
+.fc-venue-hltick {
+  position: absolute;
+  top: -1px;
+  bottom: -1px;
+  width: 0;
+  border-left: 1px dashed var(--fr-ref);
+  opacity: 0.7;
+  transform: translateX(-0.5px);
+}
+.fc-venue-fill {
+  position: absolute;
+  top: 2px;
+  bottom: 2px;
+  border-radius: 2px;
+  min-width: 1px;
+}
+.fc-venue-fill.up {
+  background: var(--buy);
+  opacity: 0.78;
+}
+.fc-venue-fill.down {
+  background: var(--sell);
+  opacity: 0.78;
+}
+
+.fc-venue-right {
+  flex: none;
+  width: 48px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+.fc-venue-apr {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fc-venue-apr.up {
+  color: var(--buy);
+}
+.fc-venue-apr.down {
+  color: var(--sell);
+}
+.fc-venue-delta {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.75;
+}
+.fc-venue-delta.up {
+  color: var(--buy);
+}
+.fc-venue-delta.down {
+  color: var(--sell);
+}
+.fc-venue-delta.anchor {
+  color: var(--text-dim);
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.48rem;
+}
+
+/* next-funding countdown column */
+.fc-venue-time {
+  flex: none;
+  width: 50px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+.fc-cd {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+}
+.fc-iv {
+  font-family: var(--font-mono);
+  font-size: 0.48rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* offline / not-yet-wired venues */
+.fc-venue.off {
+  opacity: 0.5;
+}
+.fc-venue.off .fc-venue-name {
+  color: var(--text-dim);
+}
+.fc-venue-na {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 0.55rem;
+  color: var(--text-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fc-foot {
+  font-size: 0.56rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+  padding: 0 2px;
+}
+
+.fr {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.fr-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fr-head-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.fr-status {
+  font-size: 0.78rem;
+  color: var(--text-dim);
+  padding: 24px 2px;
+  text-align: center;
+}
+
+.fr-status.fr-error {
+  color: #ffa198;
+}
+
+.fr-stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+}
+
+.fr-stat {
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 8px 10px;
+}
+
+.fr-stat-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.fr-stat-value {
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.fr-stat-value.up {
+  color: var(--buy);
+}
+.fr-stat-value.down {
+  color: var(--sell);
+}
+
+.fr-stat-sub {
+  font-size: 0.6rem;
+  color: var(--text-dim);
+  font-family: var(--font-mono);
+  margin-top: 1px;
+}
+.fr-stat-sub.up {
+  color: var(--buy);
+}
+.fr-stat-sub.down {
+  color: var(--sell);
+}
+
+.fr-chart-wrap {
+  position: relative;
+}
+
+.fr-chart {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+
+.fr-crosshair {
+  stroke: var(--text-mute);
+  stroke-width: 0.6;
+  stroke-dasharray: 2 2;
+  opacity: 0.7;
+}
+
+.fr-dot-apr {
+  fill: var(--fr-apr);
+  stroke: var(--bg);
+  stroke-width: 0.8;
+}
+
+.fr-dot-price {
+  fill: var(--text);
+  stroke: var(--bg);
+  stroke-width: 0.8;
+}
+
+.fr-tooltip {
+  position: absolute;
+  top: 2px;
+  pointer-events: none;
+  background: rgba(6, 21, 21, 0.92);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--r-xs);
+  padding: 5px 8px;
+  box-shadow: var(--shadow-card);
+  z-index: 2;
+  min-width: 92px;
+}
+
+.fr-tooltip.center {
+  transform: translateX(-50%);
+}
+.fr-tooltip.right {
+  transform: translateX(-100%);
+}
+/* .left → no transform (anchor at cursor) */
+
+.fr-tooltip-date {
+  font-family: var(--font-mono);
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  margin-bottom: 3px;
+  white-space: nowrap;
+}
+
+.fr-tooltip-row {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+
+.fr-tooltip-key {
+  width: 8px;
+  height: 0;
+  border-top: 2px solid var(--line);
+  flex: none;
+}
+.fr-tooltip-key.apr {
+  border-top-color: var(--fr-apr);
+}
+.fr-tooltip-key.price {
+  border-top-color: var(--text);
+}
+
+.fr-tooltip-name {
+  font-size: 0.6rem;
+  color: var(--text-mute);
+  margin-right: auto;
+}
+
+.fr-tooltip-val {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.fr-tooltip-val.up {
+  color: var(--buy);
+}
+.fr-tooltip-val.down {
+  color: var(--sell);
+}
+
+.fr-grid-line {
+  stroke: var(--line);
+  stroke-width: 0.5;
+}
+
+.fr-zero-line {
+  stroke: var(--line-strong);
+  stroke-width: 0.7;
+  stroke-dasharray: 2 2;
+}
+
+.fr-apr-line {
+  fill: none;
+  stroke: var(--fr-apr);
+  stroke-width: 1.15;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+}
+
+.fr-avg-line {
+  stroke: var(--fr-ref);
+  stroke-width: 0.9;
+  stroke-dasharray: 4 3;
+}
+
+.fr-avg-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 600;
+  fill: var(--fr-ref);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Per-horizon emphasis for the strip swatches: nearest-term brightest,
+   longest faintest. (The chart draws only the selected window's line.) */
+
+/* Value tag pinned to the right axis, like a price marker. */
+.fr-avg-tag-bg {
+  fill: var(--fr-ref);
+  rx: 2;
+}
+
+.fr-avg-tag-text {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  font-weight: 700;
+  fill: var(--bg);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Average-APR readout strip below the legend. Each window is a button that
+   selects it on the chart; the selected one is highlighted in the chart's avg
+   blue so the strip and the drawn reference line read as one. */
+.fr-avg-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.fr-avg-strip-label {
+  font-family: var(--font-sans);
+  font-size: 0.56rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  margin-right: 3px;
+}
+
+.fr-avg-pill {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+  padding: 2px 7px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: var(--r-xs);
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.fr-avg-pill:hover {
+  background: var(--bg-hover);
+}
+
+/* Selected window — matches the avg line + tag drawn on the chart. */
+.fr-avg-pill.active {
+  background: rgba(122, 162, 247, 0.13);
+  border-color: rgba(122, 162, 247, 0.34);
+}
+
+.fr-avg-pill-win {
+  color: var(--text-dim);
+  font-size: 0.92em;
+}
+.fr-avg-pill.active .fr-avg-pill-win {
+  color: var(--fr-ref);
+}
+
+.fr-avg-pill-val {
+  font-weight: 600;
+}
+.fr-avg-pill-val.up {
+  color: var(--buy);
+}
+.fr-avg-pill-val.down {
+  color: var(--sell);
+}
+
+.fr-price-line {
+  fill: none;
+  stroke: var(--text-mute);
+  stroke-width: 1;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.7;
+}
+
+.fr-axis-label {
+  font-family: var(--font-mono);
+  font-size: 8px;
+  fill: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.fr-axis-apr {
+  fill: var(--fr-apr);
+  opacity: 0.8;
+}
+
+.fr-axis-price {
+  fill: var(--text-mute);
+}
+
+.fr-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 0 2px;
+}
+
+.fr-legend-item {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 7px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease,
+    background 0.12s ease;
+}
+
+.fr-legend-item:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--bg-hover);
+}
+
+.fr-legend-item.off {
+  opacity: 0.4;
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+
+/* Line-series swatch: a short stroke rather than a filled block. */
+.fr-legend-swatch {
+  width: 12px;
+  height: 6px;
+  border-top: 2px solid var(--line);
+  flex: none;
+}
+
+.fr-legend-item.apr .fr-legend-swatch {
+  border-top-color: var(--fr-apr);
+}
+
+.fr-legend-item.price .fr-legend-swatch {
+  border-top-color: var(--text-mute);
+}
+
+.fr-legend-item.avg .fr-legend-swatch {
+  border-top: 2px dashed var(--fr-ref);
 }

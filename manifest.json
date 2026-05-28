@@ -7,9 +7,19 @@
   "host_permissions": [
     "https://api-ui.hyperliquid.xyz/*",
     "https://app.hyperliquid.xyz/*",
+    "https://fapi.binance.com/*",
+    "https://api.bybit.com/*",
     "https://api.hypurrscan.io/*",
     "https://api.hyperdash.com/*",
-    "https://gql.opensea.io/*"
+    "https://gql.opensea.io/*",
+    "https://www.okx.com/*",
+    "https://fapi.asterdex.com/*",
+    "https://mainnet.zklighter.elliot.ai/*",
+    "https://api.pacifica.fi/*",
+    "https://api.starknet.extended.exchange/*",
+    "https://pro.edgex.exchange/*",
+    "https://market-data.grvt.io/*",
+    "https://omni-client-api.prod.ap-northeast-1.variational.io/*"
   ],
   "action": {
     "default_title": "Open Hypurr Extension"
