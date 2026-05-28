@@ -18,11 +18,12 @@ import LiquidationMap from "./LiquidationMap";
 import StopOrderMap from "./StopOrderMap";
 import FundingRatePanel from "./FundingRatePanel";
 import FundingComparePanel from "./FundingComparePanel";
+import StocksPanel from "./StocksPanel";
 import HypurrNftChart from "./HypurrNftChart";
 
 const DEFAULT_RAW_COIN = "HYPE";
 
-type TabId = "twaps" | "funding" | "liquidation" | "stops" | "nft";
+type TabId = "twaps" | "funding" | "liquidation" | "stops" | "stocks" | "nft";
 
 type TabDef = {
   id: TabId;
@@ -31,17 +32,20 @@ type TabDef = {
     coin: string;
     hasPerp: boolean;
     hasMainPerp: boolean;
+    category: string | null;
   }) => boolean;
 };
 
 // FR works for any HL perp (incl. sub-DEX commodities/stocks/FX), but
 // Liquidation/Stops rely on main-DEX-only data (Hyperdash bands), so those
-// tabs stay gated on the strict main-DEX flag.
+// tabs stay gated on the strict main-DEX flag. Stocks appears when HL's own
+// annotation tags the coin as a stock (Yahoo Finance backs the data).
 const TABS: TabDef[] = [
   { id: "twaps", label: "TWAPs", isAvailable: () => true },
   { id: "funding", label: "FR", isAvailable: (c) => c.hasPerp },
   { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasMainPerp },
   { id: "stops", label: "Stops", isAvailable: (c) => c.hasMainPerp },
+  { id: "stocks", label: "Stocks", isAvailable: (c) => c.category === "stocks" },
   { id: "nft", label: "NFT", isAvailable: (c) => c.coin === "HYPE" },
 ];
 
@@ -252,6 +256,15 @@ export default function App() {
           refreshKey={refreshKey}
         />
       )}
+      {activeTab === "stocks" && (
+        <StocksPanel
+          coin={resolvedCoinId}
+          companyName={
+            coinIndex?.annotations[resolvedCoinId]?.displayName ?? null
+          }
+          refreshKey={refreshKey}
+        />
+      )}
       {activeTab === "nft" && (
         <HypurrNftChart coin={resolvedCoinId} refreshKey={refreshKey} />
       )}
@@ -328,8 +341,9 @@ function TabBar({ activeTab, onChange, coin, coinIndex }: TabBarProps) {
   // bare names belong to the main DEX where Hyperdash-backed liq/stop bands
   // exist.
   const hasMainPerp = hasPerp && !coin.includes(":");
+  const category = coinIndex?.annotations[coin]?.category ?? null;
   const visible = TABS.filter((t) =>
-    t.isAvailable({ coin, hasPerp, hasMainPerp }),
+    t.isAvailable({ coin, hasPerp, hasMainPerp, category }),
   );
 
   useEffect(() => {

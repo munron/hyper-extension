@@ -2341,3 +2341,460 @@ button.fc-venue:hover {
 .fr-legend-item.avg .fr-legend-swatch {
   border-top: 2px dashed var(--fr-ref);
 }
+
+/* ===========================================================
+   Stocks panel (Yahoo Finance backed)
+   =========================================================== */
+.stocks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-card);
+}
+
+.stocks-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.stocks-head-label {
+  font-size: 0.64rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  font-weight: 700;
+}
+.stocks-head-sub {
+  font-size: 0.72rem;
+  color: var(--text);
+  letter-spacing: 0.01em;
+}
+
+.stocks-status {
+  font-size: 0.78rem;
+  color: var(--text-mute);
+  padding: 8px 2px;
+}
+.stocks-status.stocks-error {
+  color: #ffa198;
+}
+
+/* Hero: large price + 52w range bar. */
+.stocks-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.stocks-price {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.stocks-price-val {
+  font-family: var(--font-mono);
+  font-size: 1.6rem;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+.stocks-price-chg {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stocks-price-chg.up {
+  color: var(--buy);
+}
+.stocks-price-chg.down {
+  color: var(--sell);
+}
+.stocks-price-chg-raw {
+  opacity: 0.7;
+  font-weight: 500;
+}
+
+/* Extended-hours readout (After-hours / Pre-market) — sits under the regular
+   session price as a compact sub-line. Tinted toward the change direction so
+   the bias reads at a glance, but kept subtle so it doesn't compete with the
+   main price. */
+.stocks-ext {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  margin-top: -2px;
+  color: var(--text-mute);
+}
+.stocks-ext-tag {
+  font-family: var(--font-sans);
+  font-size: 0.54rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  color: var(--text-mute);
+}
+.stocks-ext-price {
+  color: var(--text);
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stocks-ext-chg {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.stocks-ext.up .stocks-ext-chg {
+  color: var(--buy);
+}
+.stocks-ext.down .stocks-ext-chg {
+  color: var(--sell);
+}
+.stocks-ext-chg-raw {
+  opacity: 0.7;
+  font-weight: 500;
+}
+.stocks-ext-time {
+  margin-left: auto;
+  font-size: 0.58rem;
+  color: var(--text-dim);
+}
+
+/* Overnight readout — same layout as After-hours / Pre-market, but a slightly
+   richer chip and a small pulsing dot to signal "live websocket tick". */
+.stocks-ext-tag-overnight {
+  background: var(--bg-soft-mint);
+  border-color: var(--line-mint);
+  color: var(--mint-bright);
+}
+.stocks-ext-icon {
+  font-size: 0.85em;
+  margin-right: 2px;
+}
+.stocks-ext-live {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-left: 4px;
+  border-radius: 50%;
+  background: var(--mint-bright);
+  box-shadow: 0 0 0 0 var(--mint-bright);
+  animation: stocks-live-pulse 1.6s ease-out infinite;
+}
+@keyframes stocks-live-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(80, 210, 193, 0.6); }
+  70%  { box-shadow: 0 0 0 5px rgba(80, 210, 193, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(80, 210, 193, 0); }
+}
+
+/* Metric tiles grid. */
+.stocks-tiles {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 6px;
+}
+.stocks-tile {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  min-width: 0;
+}
+.stocks-tile-label {
+  font-size: 0.56rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  font-weight: 700;
+}
+.stocks-tile-val {
+  font-family: var(--font-mono);
+  font-size: 0.92rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  /* Long values (e.g. "$87.21 – $115.43") wrap inside the tile instead of
+     overflowing the rounded card. */
+  overflow-wrap: anywhere;
+  line-height: 1.15;
+}
+.stocks-tile-sub {
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Next earnings — single-row callout above the surprise chart. */
+.stocks-earnings-next {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 8px 10px;
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
+  border-radius: var(--r-sm);
+}
+.stocks-earnings-next-label {
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mint-bright);
+  font-weight: 700;
+}
+.stocks-earnings-next-date {
+  font-family: var(--font-mono);
+  font-size: 0.84rem;
+  font-weight: 600;
+  color: var(--text);
+}
+.stocks-earnings-next-rel {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--text-dim);
+  margin-left: auto;
+}
+
+/* Earnings Trends — two cards (EPS dot chart + Revenue/Earnings bars), same
+   visual language as Yahoo's "Earnings Trends" panel but in Hypurr's palette
+   (mint primary, warn secondary, buy/sell semantic colors). */
+.stocks-trends {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+.stocks-trends-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.stocks-trends-section {
+  font-size: 0.62rem;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+  font-weight: 700;
+}
+.stocks-trends-legend {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  color: var(--text-mute);
+}
+.stocks-trends-q {
+  font-family: var(--font-sans);
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line);
+  color: var(--text);
+  background: var(--bg-elevated);
+}
+.stocks-trends-key {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  white-space: nowrap;
+}
+.stocks-trends-key b {
+  color: var(--text);
+  font-weight: 700;
+}
+.stocks-trends-key b.beat {
+  color: var(--buy);
+}
+.stocks-trends-key b.miss {
+  color: var(--sell);
+}
+/* Small estimate / actual dot swatches matching the in-chart markers. */
+.stocks-trends-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  box-sizing: border-box;
+}
+.stocks-trends-dot.estimate {
+  background: transparent;
+  border: 1.5px solid var(--text-mute);
+}
+.stocks-trends-dot.actual.beat {
+  background: var(--buy);
+}
+.stocks-trends-dot.actual.miss {
+  background: var(--sell);
+}
+/* Filled-square swatches for the revenue/earnings legend. */
+.stocks-trends-swatch {
+  width: 9px;
+  height: 9px;
+  border-radius: 2px;
+  flex: none;
+}
+.stocks-trends-swatch.revenue {
+  background: var(--mint);
+}
+.stocks-trends-swatch.earnings {
+  background: var(--warn);
+}
+
+/* Annual / Quarterly toggle — pill-segmented like Yahoo. */
+.stocks-trends-toggle {
+  display: inline-flex;
+  padding: 2px;
+  gap: 1px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--line);
+  border-radius: var(--r-pill);
+}
+.stocks-trends-toggle button {
+  background: transparent;
+  border: none;
+  padding: 3px 10px;
+  font-family: var(--font-sans);
+  font-size: 0.58rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-mute);
+  cursor: pointer;
+  border-radius: var(--r-pill);
+  transition: color 0.12s ease, background 0.12s ease;
+}
+.stocks-trends-toggle button:hover:not(.active) {
+  color: var(--text);
+}
+.stocks-trends-toggle button.active {
+  background: var(--mint);
+  color: #021816;
+}
+
+.stocks-trends-svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.stocks-trends-grid {
+  stroke: var(--line);
+  stroke-width: 0.5;
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+.stocks-trends-zero {
+  stroke: var(--line-strong);
+  stroke-width: 0.75;
+}
+.stocks-trends-divider {
+  stroke: var(--line-strong);
+  stroke-width: 0.6;
+  stroke-dasharray: 2 3;
+  opacity: 0.7;
+}
+.stocks-trends-axis {
+  fill: var(--text-dim);
+  font-family: var(--font-mono);
+  font-size: 7px;
+  letter-spacing: 0.02em;
+}
+.stocks-trends-xaxis {
+  fill: var(--text-mute);
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 600;
+}
+.stocks-trends-sub {
+  font-family: var(--font-sans);
+  font-size: 6.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.stocks-trends-sub.beat {
+  fill: var(--buy);
+}
+.stocks-trends-sub.miss {
+  fill: var(--sell);
+}
+.stocks-trends-sub.upcoming {
+  fill: var(--text-dim);
+  font-style: italic;
+  text-transform: none;
+}
+.stocks-trends-sub-delta {
+  font-family: var(--font-mono);
+  font-size: 7px;
+  font-weight: 700;
+}
+.stocks-trends-sub-delta.beat {
+  fill: var(--buy);
+}
+.stocks-trends-sub-delta.miss {
+  fill: var(--sell);
+}
+
+/* Dot markers in the chart. Estimate = hollow ring; actual = filled circle,
+   tinted buy/sell to encode beat vs miss without needing a separate caption. */
+.stocks-trends-dot-estimate {
+  fill: transparent;
+  stroke: var(--text-mute);
+  stroke-width: 1.5;
+}
+.stocks-trends-dot-actual {
+  stroke: var(--bg);
+  stroke-width: 1;
+}
+.stocks-trends-dot-actual.beat {
+  fill: var(--buy);
+}
+.stocks-trends-dot-actual.miss {
+  fill: var(--sell);
+}
+
+.stocks-trends-bar.revenue {
+  fill: var(--mint);
+}
+.stocks-trends-bar.earnings {
+  fill: var(--warn);
+}
+.stocks-trends-bar.earnings.neg {
+  fill: var(--sell);
+  opacity: 0.85;
+}
+
+.stocks-foot {
+  font-size: 0.58rem;
+  color: var(--text-dim);
+  padding: 0 2px;
+}
+.stocks-link {
+  color: var(--mint-bright);
+  text-decoration: none;
+}
+.stocks-link:hover {
+  text-decoration: underline;
+}
