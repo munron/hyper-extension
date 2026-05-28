@@ -23,6 +23,10 @@ export type VenueFunding = {
   aprPct: number;
   intervalHours: number;
   nextFundingMs: number | null;
+  // Mark/index price in USD, when the venue's response exposes it. null when
+  // the venue's funding endpoint doesn't include a price and we haven't wired
+  // a separate quote fetch. UI shows "—" for null.
+  markPx: number | null;
   available: true;
 };
 export type VenueUnavailable = {
@@ -78,13 +82,41 @@ const VENUE_ALIASES: Record<string, Partial<Record<string, string>>> = {
     Extended: "WTI",
   },
   // Brent crude — HL uses commodity name "BRENTOIL"; CEX + Grvt use the
-  // futures ticker "BZ". Lighter keeps "BRENTOIL". Other DEXs don't list it.
+  // futures ticker "BZ". Lighter keeps "BRENTOIL". Extended uses the IPE
+  // futures code "XBR". Other DEXs don't list it.
   BRENTOIL: {
     Binance: "BZ",
     Aster: "BZ",
     Bybit: "BZ",
     OKX: "BZ",
     Grvt: "BZ",
+    Extended: "XBR",
+  },
+  // Copper — Binance / Grvt / Variational keep "COPPER" but the rest use the
+  // ISO base-metal code "XCU".
+  COPPER: {
+    OKX: "XCU",
+    Aster: "XCU",
+    Lighter: "XCU",
+    Extended: "XCU",
+  },
+  // Platinum — universally the ISO code "XPT" off HL's "PLATINUM" ticker.
+  PLATINUM: {
+    Binance: "XPT",
+    OKX: "XPT",
+    Aster: "XPT",
+    Grvt: "XPT",
+    Variational: "XPT",
+    Lighter: "XPT",
+    Extended: "XPT",
+  },
+  // Palladium — ISO code "XPD". Bybit / Aster / Extended don't list it.
+  PALLADIUM: {
+    Binance: "XPD",
+    OKX: "XPD",
+    Grvt: "XPD",
+    Variational: "XPD",
+    Lighter: "XPD",
   },
   // Gold — HL uses "GOLD"; virtually everyone else uses the ISO bullion
   // code "XAU". (edgeX has no spot gold — only XAUT/Tether Gold token.)
@@ -140,15 +172,23 @@ const VENUE_ALIASES: Record<string, Partial<Record<string, string>>> = {
   // US stocks on Extended carry a "_24_5" suffix (24h × 5 days/wk schedule).
   // Other venues use the bare ticker, matching HL natively.
   AAPL: { Extended: "AAPL_24_5" },
+  AMD: { Extended: "AMD_24_5" },
   AMZN: { Extended: "AMZN_24_5" },
+  BABA: { Extended: "BABA_24_5" },
+  COIN: { Extended: "COIN_24_5" },
   CRCL: { Extended: "CRCL_24_5" },
+  EWY: { Extended: "EWY_24_5" },
+  GOOG: { Extended: "GOOG_24_5" },
   HOOD: { Extended: "HOOD_24_5" },
+  INTC: { Extended: "INTC_24_5" },
   META: { Extended: "META_24_5" },
   MSFT: { Extended: "MSFT_24_5" },
   MSTR: { Extended: "MSTR_24_5" },
+  MU: { Extended: "MU_24_5" },
   NVDA: { Extended: "NVDA_24_5" },
   ORCL: { Extended: "ORCL_24_5" },
   PLTR: { Extended: "PLTR_24_5" },
+  SNDK: { Extended: "SNDK_24_5" },
   TSLA: { Extended: "TSLA_24_5" },
   // Regional stocks renamed on Lighter ("<NAME>USD" suffix for non-US).
   HYUNDAI: { Lighter: "HYUNDAIUSD" },
@@ -179,8 +219,16 @@ export function venueTradeUrl(venue: string, coin: string): string | null {
       return `https://www.okx.com/trade-swap/${c.toLowerCase()}-usdt-swap`;
     case "Aster":
       return `https://www.asterdex.com/en/futures/v1/${c}USDT`;
-    case "edgeX":
+    case "edgeX": {
+      // v2 (USDC perp) markets live under /perpetuals/<sym>USDC; v1 (USD) ones
+      // under /trade/<sym>USD. Prefer the cached map's verdict if available so
+      // newly-listed equity perps (MU, etc.) point at the right page.
+      const found = edgexMapSync ? lookupEdgexContract(edgexMapSync, c) : null;
+      if (found?.contract.version === "v2") {
+        return `https://pro.edgex.exchange/perpetuals/${found.name}`;
+      }
       return `https://pro.edgex.exchange/trade/${c}USD`;
+    }
     case "Lighter":
       return `https://app.lighter.xyz/trade/${c}`;
     case "Grvt":
@@ -216,6 +264,14 @@ function unavailable(
   return { venue, kind, available: false, reason };
 }
 
+// Best-effort price parse from venue payloads (fields are typed as
+// `string | number | undefined` across venues). Returns null on garbage.
+function parseOptionalNumber(v: unknown): number | null {
+  if (v == null) return null;
+  const n = typeof v === "number" ? v : parseFloat(String(v));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
 async function getJson(url: string): Promise<unknown> {
   const res = await fetch(url, { headers: { Accept: "application/json" } });
   if (!res.ok) throw new Error(`${res.status} ${res.statusText}`);
@@ -248,12 +304,14 @@ async function fetchHyperliquidDirect(coin: string): Promise<VenueResult> {
     const intervalHours = 1;
     const apr = toApr(parseFloat(f), intervalHours);
     if (!Number.isFinite(apr)) return unavailable(venue, kind, "no data");
+    const markPx = parseOptionalNumber(ctxs[i]?.markPx);
     return {
       venue,
       kind,
       aprPct: apr,
       intervalHours,
       nextFundingMs: nextTopOfHour(),
+      markPx,
       available: true,
     };
   } catch {
@@ -281,6 +339,8 @@ function fromPredicted(
     aprPct: apr,
     intervalHours,
     nextFundingMs: info.nextFundingTime ?? null,
+    // predictedFundings doesn't expose a mark price; UI shows "—".
+    markPx: null,
     available: true,
   };
 }
@@ -326,6 +386,7 @@ async function fetchBinance(coin: string): Promise<VenueResult> {
       getJson(`https://fapi.binance.com/fapi/v1/premiumIndex?symbol=${symbol}`) as Promise<{
         lastFundingRate?: string;
         nextFundingTime?: number;
+        markPrice?: string;
       }>,
       getBinanceIntervals().catch(() => new Map<string, number>()),
     ]);
@@ -337,6 +398,7 @@ async function fetchBinance(coin: string): Promise<VenueResult> {
       aprPct: toApr(parseFloat(pi.lastFundingRate), intervalHours),
       intervalHours,
       nextFundingMs: Number(pi.nextFundingTime) || null,
+      markPx: parseOptionalNumber(pi.markPrice),
       available: true,
     };
   } catch {
@@ -355,7 +417,7 @@ async function fetchBybit(coin: string): Promise<VenueResult> {
       getJson(
         `https://api.bybit.com/v5/market/tickers?category=linear&symbol=${symbol}`,
       ) as Promise<{
-        result?: { list?: { fundingRate?: string; nextFundingTime?: string }[] };
+        result?: { list?: { fundingRate?: string; nextFundingTime?: string; markPrice?: string }[] };
       }>,
       (getJson(
         `https://api.bybit.com/v5/market/instruments-info?category=linear&symbol=${symbol}`,
@@ -374,6 +436,7 @@ async function fetchBybit(coin: string): Promise<VenueResult> {
       aprPct: toApr(parseFloat(t.fundingRate), intervalHours),
       intervalHours,
       nextFundingMs: Number(t.nextFundingTime) || null,
+      markPx: parseOptionalNumber(t.markPrice),
       available: true,
     };
   } catch {
@@ -387,10 +450,17 @@ async function fetchOkx(coin: string): Promise<VenueResult> {
   const venue = "OKX";
   const kind: VenueKind = "CEX";
   try {
-    const j = (await getJson(
-      `https://www.okx.com/api/v5/public/funding-rate?instId=${coin}-USDT-SWAP`,
-    )) as { data?: Record<string, string>[] };
-    const d = j.data?.[0];
+    const instId = `${coin}-USDT-SWAP`;
+    const [funding, mark] = await Promise.all([
+      getJson(`https://www.okx.com/api/v5/public/funding-rate?instId=${instId}`) as Promise<{
+        data?: Record<string, string>[];
+      }>,
+      // OKX's funding endpoint omits price; mark-price is one extra call.
+      getJson(`https://www.okx.com/api/v5/public/mark-price?instType=SWAP&instId=${instId}`).catch(
+        () => null,
+      ) as Promise<{ data?: { markPx?: string }[] } | null>,
+    ]);
+    const d = funding.data?.[0];
     if (!d || !d.fundingRate) return unavailable(venue, kind, "not listed");
     const rate = parseFloat(d.fundingRate);
     const fundingTime = Number(d.fundingTime); // upcoming settlement
@@ -405,6 +475,7 @@ async function fetchOkx(coin: string): Promise<VenueResult> {
       aprPct: toApr(rate, intervalHours),
       intervalHours,
       nextFundingMs: fundingTime || null,
+      markPx: parseOptionalNumber(mark?.data?.[0]?.markPx),
       available: true,
     };
   } catch {
@@ -447,6 +518,7 @@ async function fetchAster(coin: string): Promise<VenueResult> {
       getJson(`https://fapi.asterdex.com/fapi/v1/premiumIndex?symbol=${symbol}`) as Promise<{
         lastFundingRate?: string;
         nextFundingTime?: number;
+        markPrice?: string;
       }>,
       getAsterIntervals().catch(() => new Map<string, number>()),
     ]);
@@ -458,6 +530,7 @@ async function fetchAster(coin: string): Promise<VenueResult> {
       aprPct: toApr(parseFloat(j.lastFundingRate), intervalHours),
       intervalHours,
       nextFundingMs: Number(j.nextFundingTime) || null,
+      markPx: parseOptionalNumber(j.markPrice),
       available: true,
     };
   } catch {
@@ -471,9 +544,20 @@ async function fetchLighter(coin: string): Promise<VenueResult> {
   const venue = "Lighter";
   const kind: VenueKind = "DEX";
   try {
-    const j = (await getJson(
-      "https://mainnet.zklighter.elliot.ai/api/v1/funding-rates",
-    )) as { funding_rates?: { symbol: string; exchange: string; rate: number }[] };
+    // funding-rates carries the rate; exchangeStats carries per-market
+    // last_trade_price. /orderBooks looks promising at first glance but only
+    // ships market *metadata* (decimals, fees) — no price field. Fetched in
+    // parallel so the panel sees one round-trip.
+    const [j, stats] = await Promise.all([
+      getJson("https://mainnet.zklighter.elliot.ai/api/v1/funding-rates") as Promise<{
+        funding_rates?: { symbol: string; exchange: string; rate: number }[];
+      }>,
+      getJson("https://mainnet.zklighter.elliot.ai/api/v1/exchangeStats").catch(
+        () => null,
+      ) as Promise<{
+        order_book_stats?: { symbol?: string; last_trade_price?: number | string }[];
+      } | null>,
+    ]);
     // This is a funding *comparison* feed: each market is listed against
     // several reference exchanges, all on a common 8h basis (the feed's own
     // "binance" row annualized at 8h matches Binance's real APR, which is how
@@ -485,12 +569,14 @@ async function fetchLighter(coin: string): Promise<VenueResult> {
     );
     if (!row) return unavailable(venue, kind, "not listed");
     const intervalHours = 8;
+    const statRow = stats?.order_book_stats?.find((s) => s.symbol === coin);
     return {
       venue,
       kind,
       aprPct: toApr(Number(row.rate), intervalHours),
       intervalHours,
       nextFundingMs: null,
+      markPx: parseOptionalNumber(statRow?.last_trade_price),
       available: true,
     };
   } catch {
@@ -505,7 +591,15 @@ async function fetchPacifica(coin: string): Promise<VenueResult> {
   const kind: VenueKind = "DEX";
   try {
     const j = (await getJson("https://api.pacifica.fi/api/v1/info")) as {
-      data?: { symbol: string; funding_rate?: string; next_funding_rate?: string }[];
+      data?: {
+        symbol: string;
+        funding_rate?: string;
+        next_funding_rate?: string;
+        mark_price?: string;
+        mark?: string;
+        mid_price?: string;
+        mid?: string;
+      }[];
     };
     const row = j.data?.find((x) => x.symbol === coin);
     const raw = row?.next_funding_rate ?? row?.funding_rate;
@@ -517,6 +611,9 @@ async function fetchPacifica(coin: string): Promise<VenueResult> {
       aprPct: toApr(parseFloat(raw), intervalHours),
       intervalHours,
       nextFundingMs: nextTopOfHour(),
+      markPx: parseOptionalNumber(
+        row?.mark_price ?? row?.mark ?? row?.mid_price ?? row?.mid,
+      ),
       available: true,
     };
   } catch {
@@ -535,7 +632,13 @@ async function fetchExtended(coin: string): Promise<VenueResult> {
     )) as {
       data?: {
         name: string;
-        marketStats?: { fundingRate?: string; nextFundingRate?: number };
+        marketStats?: {
+          fundingRate?: string;
+          nextFundingRate?: number;
+          markPrice?: string;
+          indexPrice?: string;
+          lastPrice?: string;
+        };
       }[];
     };
     const ms = j.data?.find((x) => x.name === `${coin}-USD`)?.marketStats;
@@ -547,6 +650,7 @@ async function fetchExtended(coin: string): Promise<VenueResult> {
       aprPct: toApr(parseFloat(ms.fundingRate), intervalHours),
       intervalHours,
       nextFundingMs: Number(ms.nextFundingRate) || nextTopOfHour(),
+      markPx: parseOptionalNumber(ms.markPrice ?? ms.indexPrice ?? ms.lastPrice),
       available: true,
     };
   } catch {
@@ -556,19 +660,52 @@ async function fetchExtended(coin: string): Promise<VenueResult> {
 
 // --- edgeX (interval read live; often 4h) ------------------------------------
 
-// edgeX funding needs a contractId, and the symbol→contractId map only lives in
-// a large (~750KB) metadata blob. Fetch it once per session and cache.
-let edgexMapPromise: Promise<Map<string, string>> | null = null;
-function getEdgexContractMap(): Promise<Map<string, string>> {
+// edgeX runs two parallel exchanges: the v1 "USD" markets (BTCUSD, NVDAUSD)
+// and a newer v2 "USDC" book (BTCUSDC, MUUSDC) hosted on edgex-prod-v2 with a
+// different API prefix. New listings — especially equity perps that don't yet
+// have a v1 counterpart — only show up on v2, so we have to consult both.
+type EdgexContract = {
+  contractId: string;
+  // Which API surface to query for funding/quote. v1 endpoints don't accept v2
+  // contract IDs and vice versa.
+  version: "v1" | "v2";
+};
+
+let edgexMapPromise: Promise<Map<string, EdgexContract>> | null = null;
+// Synchronous mirror of the resolved map, populated as a side effect once the
+// promise settles. Lets the synchronous `venueTradeUrl` route v2-only coins
+// (USDC perp markets like MUUSDC) to the right deep-link path — by the time a
+// user clicks the launch arrow, the venues panel has already loaded so the
+// map is reliably populated. Returns null before first resolution.
+let edgexMapSync: Map<string, EdgexContract> | null = null;
+function getEdgexContractMap(): Promise<Map<string, EdgexContract>> {
   if (!edgexMapPromise) {
     edgexMapPromise = (async () => {
-      const j = (await getJson(
-        "https://pro.edgex.exchange/api/v1/public/meta/getMetaData",
-      )) as { data?: { contractList?: { contractName?: string; contractId?: string }[] } };
-      const map = new Map<string, string>();
-      for (const c of j.data?.contractList ?? []) {
-        if (c.contractName && c.contractId) map.set(c.contractName, c.contractId);
+      const [v1, v2] = await Promise.all([
+        getJson("https://pro.edgex.exchange/api/v1/public/meta/getMetaData") as Promise<{
+          data?: { contractList?: { contractName?: string; contractId?: string }[] };
+        }>,
+        getJson(
+          "https://edgex-prod-v2.edgex.exchange/api/v2/public/meta/getMetaData",
+        ).catch(() => null) as Promise<{
+          data?: { contractList?: { contractName?: string; contractId?: string }[] };
+        } | null>,
+      ]);
+      const map = new Map<string, EdgexContract>();
+      for (const c of v1.data?.contractList ?? []) {
+        if (c.contractName && c.contractId) {
+          map.set(c.contractName, { contractId: c.contractId, version: "v1" });
+        }
       }
+      // v2 second so a duplicate name (shouldn't happen — different suffixes)
+      // would resolve to v2. Practical effect is just adding the USDC-quoted
+      // markets alongside the existing USD ones.
+      for (const c of v2?.data?.contractList ?? []) {
+        if (c.contractName && c.contractId) {
+          map.set(c.contractName, { contractId: c.contractId, version: "v2" });
+        }
+      }
+      edgexMapSync = map;
       return map;
     })().catch((e) => {
       edgexMapPromise = null; // allow a retry on the next load
@@ -578,22 +715,58 @@ function getEdgexContractMap(): Promise<Map<string, string>> {
   return edgexMapPromise;
 }
 
+// Resolve coin → contract by trying the v1 "USD" name first, then the v2 "USDC"
+// name. Many crypto coins exist on both; stocks like MU live only on v2.
+function lookupEdgexContract(
+  map: Map<string, EdgexContract>,
+  coin: string,
+): { name: string; contract: EdgexContract } | null {
+  const v1 = map.get(`${coin}USD`);
+  if (v1) return { name: `${coin}USD`, contract: v1 };
+  const v2 = map.get(`${coin}USDC`);
+  if (v2) return { name: `${coin}USDC`, contract: v2 };
+  return null;
+}
+
+// Per-version API roots. v2 funding responses already carry markPrice, so we
+// skip the separate ticker fetch for v2 contracts.
+const EDGEX_API_ROOT: Record<EdgexContract["version"], string> = {
+  v1: "https://pro.edgex.exchange/api/v1",
+  v2: "https://edgex-prod-v2.edgex.exchange/api/v2",
+};
+
 async function fetchEdgex(coin: string): Promise<VenueResult> {
   const venue = "edgeX";
   const kind: VenueKind = "DEX";
   try {
-    const contractId = (await getEdgexContractMap()).get(`${coin}USD`);
-    if (!contractId) return unavailable(venue, kind, "not listed");
-    const j = (await getJson(
-      `https://pro.edgex.exchange/api/v1/public/funding/getLatestFundingRate?contractId=${contractId}`,
-    )) as {
-      data?: {
-        fundingRate?: string;
-        forecastFundingRate?: string;
-        fundingTime?: string;
-        fundingRateIntervalMin?: string;
-      }[];
-    };
+    const found = lookupEdgexContract(await getEdgexContractMap(), coin);
+    if (!found) return unavailable(venue, kind, "not listed");
+    const { contract } = found;
+    const root = EDGEX_API_ROOT[contract.version];
+    const [j, quote] = await Promise.all([
+      getJson(
+        `${root}/public/funding/getLatestFundingRate?contractId=${contract.contractId}`,
+      ) as Promise<{
+        data?: {
+          fundingRate?: string;
+          forecastFundingRate?: string;
+          fundingTime?: string;
+          fundingRateIntervalMin?: string;
+          markPrice?: string;
+          oraclePrice?: string;
+          indexPrice?: string;
+        }[];
+      }>,
+      // v1 funding response omits price → fall back to the 24h ticker.
+      // v2 funding already includes markPrice, so this side fetch is unused.
+      contract.version === "v1"
+        ? (getJson(
+            `${root}/public/quote/getTicker24HourQuote?contractId=${contract.contractId}`,
+          ).catch(() => null) as Promise<{
+            data?: { lastPrice?: string; markPrice?: string; indexPrice?: string }[];
+          } | null>)
+        : Promise.resolve(null),
+    ]);
     const d = j.data?.[0];
     // Trap: edgeX also returns `predictedFundingRate`, but that's just the
     // interest-rate baseline (~+0.00005 = +10.95% APR), not the expected
@@ -617,6 +790,16 @@ async function fetchEdgex(coin: string): Promise<VenueResult> {
       aprPct: toApr(parseFloat(raw), intervalHours),
       intervalHours,
       nextFundingMs,
+      markPx: parseOptionalNumber(
+        // v2 path: read directly from the funding response.
+        d?.markPrice ??
+          d?.oraclePrice ??
+          d?.indexPrice ??
+          // v1 path: ticker fallback.
+          quote?.data?.[0]?.markPrice ??
+          quote?.data?.[0]?.indexPrice ??
+          quote?.data?.[0]?.lastPrice,
+      ),
       available: true,
     };
   } catch {
@@ -637,7 +820,13 @@ async function fetchGrvt(coin: string): Promise<VenueResult> {
     });
     if (!res.ok) throw new Error(`${res.status}`);
     const j = (await res.json()) as {
-      result?: { funding_rate?: string; next_funding_time?: string };
+      result?: {
+        funding_rate?: string;
+        next_funding_time?: string;
+        mark_price?: string;
+        index_price?: string;
+        last_price?: string;
+      };
     };
     const raw = j.result?.funding_rate;
     if (raw == null) return unavailable(venue, kind, "not listed");
@@ -654,6 +843,9 @@ async function fetchGrvt(coin: string): Promise<VenueResult> {
       aprPct: toApr(rate, intervalHours),
       intervalHours,
       nextFundingMs,
+      markPx: parseOptionalNumber(
+        j.result?.mark_price ?? j.result?.index_price ?? j.result?.last_price,
+      ),
       available: true,
     };
   } catch {
@@ -677,7 +869,14 @@ async function fetchVariational(coin: string): Promise<VenueResult> {
     const j = (await getJson(
       "https://omni-client-api.prod.ap-northeast-1.variational.io/metadata/stats",
     )) as {
-      listings?: { ticker: string; funding_rate?: string; funding_interval_s?: number }[];
+      listings?: {
+        ticker: string;
+        funding_rate?: string;
+        funding_interval_s?: number;
+        mark_price?: string;
+        index_price?: string;
+        last_price?: string;
+      }[];
     };
     const row = j.listings?.find((x) => x.ticker === coin);
     if (!row || row.funding_rate == null) return unavailable(venue, kind, "not listed");
@@ -690,6 +889,9 @@ async function fetchVariational(coin: string): Promise<VenueResult> {
       aprPct: apr,
       intervalHours,
       nextFundingMs: null, // variable window, no timestamp in the feed
+      markPx: parseOptionalNumber(
+        row.mark_price ?? row.index_price ?? row.last_price,
+      ),
       available: true,
     };
   } catch {
@@ -700,9 +902,12 @@ async function fetchVariational(coin: string): Promise<VenueResult> {
 // --- aggregate ---------------------------------------------------------------
 
 export async function fetchVenueFundings(coin: string): Promise<VenueResult[]> {
-  const [predicted, binance, bybit, okx, aster, lighter, pacifica, extended, edgex, grvt, variational] =
+  const [predicted, hlDirect, binance, bybit, okx, aster, lighter, pacifica, extended, edgex, grvt, variational] =
     await Promise.all([
       fetchPredictedFundings().catch(() => null as PredictedFundingEntry[] | null),
+      // Direct read gives us HL's markPx (predicted only carries FR), so we
+      // always call it — predicted is now only a fallback if direct fails.
+      fetchHyperliquidDirect(coin),
       fetchBinance(venueSymbol("Binance", coin)),
       fetchBybit(venueSymbol("Bybit", coin)),
       fetchOkx(venueSymbol("OKX", coin)),
@@ -717,13 +922,10 @@ export async function fetchVenueFundings(coin: string): Promise<VenueResult[]> {
 
   const pairs = predicted?.find(([c]) => c === coin)?.[1];
   const byName = new Map<string, VenueResult>();
-  // Sub-DEX coins (xyz:BRENTOIL, flx:…) are absent from predictedFundings, so
-  // pull HL's own funding directly from metaAndAssetCtxs when needed.
-  const hlFromPredicted = fromPredicted(pairs, "HlPerp", HL_VENUE, "DEX");
-  const hlResult = hlFromPredicted.available
-    ? hlFromPredicted
-    : await fetchHyperliquidDirect(coin);
-  byName.set(HL_VENUE, hlResult);
+  // Prefer the direct read (carries markPx); fall back to predicted (FR-only)
+  // if direct fails for some reason. Sub-DEX coins (xyz:BRENTOIL, flx:…) only
+  // resolve via direct anyway.
+  byName.set(HL_VENUE, preferAvailable(hlDirect, fromPredicted(pairs, "HlPerp", HL_VENUE, "DEX")));
   byName.set(
     "Binance",
     preferAvailable(binance, fromPredicted(pairs, "BinPerp", "Binance", "CEX")),
@@ -812,13 +1014,14 @@ async function histOkx(coin: string): Promise<RawPoint[]> {
 }
 
 async function histEdgex(coin: string): Promise<RawPoint[]> {
-  const contractId = (await getEdgexContractMap()).get(`${coin}USD`);
-  if (!contractId) return [];
+  const found = lookupEdgexContract(await getEdgexContractMap(), coin);
+  if (!found) return [];
+  const root = EDGEX_API_ROOT[found.contract.version];
   // Without filterSettlementFundingRate the page returns a minute-by-minute
   // forecast snapshot (all sharing one period boundary); the filter collapses it
   // to one SETTLED rate per period (clean 4h spacing).
   const j = (await getJson(
-    `https://pro.edgex.exchange/api/v1/public/funding/getFundingRatePage?contractId=${contractId}&size=100&filterSettlementFundingRate=true`,
+    `${root}/public/funding/getFundingRatePage?contractId=${found.contract.contractId}&size=100&filterSettlementFundingRate=true`,
   )) as { data?: { dataList?: { fundingTime?: string; fundingRate?: string }[] } };
   return (j.data?.dataList ?? []).map((x) => ({
     t: Number(x.fundingTime),

@@ -24,6 +24,24 @@ function fmtApr(n: number): string {
   return (n >= 0 ? "+" : "") + n.toFixed(1) + "%";
 }
 
+// Compact USD price for the venue rows. Small (<1) stays at 4 dp, mid-size
+// (<100) at 2 dp, big numbers round to integer with thousands separators —
+// matches how traders eyeball quotes on most venue UIs.
+function fmtPx(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  if (n < 1) return n.toFixed(4);
+  if (n < 100) return n.toFixed(2);
+  if (n < 10_000) return n.toLocaleString("en-US", { maximumFractionDigits: 2 });
+  return n.toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
+// Basis as a signed percent vs HL. Two decimals because cross-venue perp basis
+// is usually well under 1%, and we want the sign + magnitude legible at a glance.
+function fmtBasisPct(n: number | null): string {
+  if (n == null || !Number.isFinite(n)) return "—";
+  return (n >= 0 ? "+" : "") + n.toFixed(2) + "%";
+}
+
 // Time until the next funding charge, ticking down.
 function fmtCountdown(next: number | null, now: number): string {
   if (!next) return "—";
@@ -234,11 +252,16 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
       {arb && active && (
         <div className="fc-arb">
           <div className="fc-arb-top">
+            {/* The selected pair (e.g. HL ↔ edgeX) headlines the island — using
+                the chart's HL-blue / CP-orange palette so the user can see at
+                a glance which two legs the lines below correspond to. */}
+            <span className="fc-arb-pair">
+              <span className="fc-arb-pair-leg hl">HL</span>
+              <span className="fc-arb-pair-sep" aria-hidden="true">↔</span>
+              <span className="fc-arb-pair-leg cp">{shortName(active.venue)}</span>
+              {arb.isBest && <span className="fc-best">best</span>}
+            </span>
             <div className="fc-arb-spread">
-              <span className="fc-arb-spread-label">
-                HL ↔ {shortName(active.venue)}
-                {arb.isBest && <span className="fc-best">best</span>}
-              </span>
               <span
                 className={`fc-arb-spread-val ${arb.displayApr >= 0 ? "up" : "down"}`}
               >
@@ -249,7 +272,9 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
           </div>
           <div className="fc-arb-legs">
             <span className="fc-leg long">
-              Long {shortName(arb.longLeg.venue)} <b>{fmtApr(arb.longLeg.aprPct)}</b>
+              <span className="fc-leg-side">Long {shortName(arb.longLeg.venue)}</span>
+              <b>{fmtApr(arb.longLeg.aprPct)}</b>
+              <span className="fc-leg-px">@ {fmtPx(arb.longLeg.markPx)}</span>
             </span>
             <button
               type="button"
@@ -261,9 +286,18 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
               ⇄
             </button>
             <span className="fc-leg short">
-              Short {shortName(arb.shortLeg.venue)} <b>{fmtApr(arb.shortLeg.aprPct)}</b>
+              <span className="fc-leg-side">Short {shortName(arb.shortLeg.venue)}</span>
+              <b>{fmtApr(arb.shortLeg.aprPct)}</b>
+              <span className="fc-leg-px">@ {fmtPx(arb.shortLeg.markPx)}</span>
             </span>
           </div>
+
+          {/* Basis = the instant edge from price convergence, separate from the
+              ongoing FR carry. Both numbers matter to a trader: a small FR
+              spread can be drowned out by a wide basis, and a tight basis with
+              a juicy FR spread is the prototypical perp-carry setup. */}
+          <ArbMetrics arb={arb} hlMark={hl.markPx} cpMark={active.markPx} />
+
 
           {/* The 72h history visualizes the same HL↔counterparty spread the
               summary describes, so it belongs inside this island rather than
@@ -278,7 +312,7 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
       )}
 
       <div className="fc-venues">
-        <VenueRow venue={hl} coin={coin} maxAbs={maxAbs} now={now} isAnchor />
+        <VenueRow venue={hl} coin={coin} maxAbs={maxAbs} now={now} isAnchor hlMark={hl.markPx} />
         <div className="fc-venues-divider" aria-hidden="true" />
         {counterparties.map((c) => (
           <VenueRow
@@ -289,6 +323,7 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
             now={now}
             hlApr={hl.aprPct}
             hlX={hlX}
+            hlMark={hl.markPx}
             active={!!active && c.venue === active.venue}
             onPick={() => pick(c.venue)}
           />
@@ -308,17 +343,84 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
       </div>
 
       <div className="fc-foot">
-        APR-normalized across funding intervals · Δ = gap vs HL · ⇄ flips
-        long/short · countdown = next funding · ↗ opens the venue
+        APR = funding · Basis = price gap vs HL · ⇄ flips long/short · ↗ opens
+        the venue
       </div>
     </section>
+  );
+}
+
+// Cross-venue arb has TWO independent edges: funding rate (carry over time) and
+// price basis (instantly capturable if/when the two perps reconverge). We show
+// them side by side so a trader can judge whether the trade is worth it now
+// (basis-heavy) or worth holding (FR-heavy).
+type ArbState = {
+  longLeg: VenueFunding;
+  shortLeg: VenueFunding;
+  displayApr: number;
+  isBest: boolean;
+};
+
+function ArbMetrics({
+  arb,
+  hlMark,
+  cpMark,
+}: {
+  arb: ArbState;
+  hlMark: number | null;
+  cpMark: number | null;
+}) {
+  // Basis% in the current long/short orientation: positive ⇒ short leg sits
+  // above long leg, so convergence captures basis as profit. Flipping legs
+  // flips the sign — same convention as displayApr.
+  const longPx = arb.longLeg.markPx;
+  const shortPx = arb.shortLeg.markPx;
+  const basisPct =
+    longPx != null && shortPx != null && longPx > 0
+      ? ((shortPx - longPx) / longPx) * 100
+      : null;
+
+  // Daily carry from FR alone, as a fraction of notional. A 10% APR spread
+  // earns ~0.027% per day if held — useful frame for how the basis number
+  // compares against just waiting for FR.
+  const dailyCarryPct = arb.displayApr / 365;
+
+  return (
+    <div className="fc-arb-metrics">
+      <div className="fc-arb-metric">
+        <span className="fc-arb-metric-label">FR spread</span>
+        <span
+          className={`fc-arb-metric-val ${arb.displayApr >= 0 ? "up" : "down"}`}
+        >
+          {fmtApr(arb.displayApr)}
+        </span>
+        <span className="fc-arb-metric-sub">
+          ≈ {fmtApr(dailyCarryPct).replace("%", "")}%/day
+        </span>
+      </div>
+      <div className="fc-arb-metric">
+        <span className="fc-arb-metric-label">Basis</span>
+        <span
+          className={`fc-arb-metric-val ${
+            basisPct == null ? "dim" : basisPct >= 0 ? "up" : "down"
+          }`}
+        >
+          {fmtBasisPct(basisPct)}
+        </span>
+        <span className="fc-arb-metric-sub">
+          {hlMark != null && cpMark != null
+            ? `${fmtPx(hlMark)} ↔ ${fmtPx(cpMark)}`
+            : "px n/a"}
+        </span>
+      </div>
+    </div>
   );
 }
 
 function Header() {
   return (
     <div className="fc-head">
-      <span className="fc-head-label">Funding Arb · vs Hyperliquid</span>
+      <span className="fc-head-label">Cross-venue Arb · vs Hyperliquid</span>
     </div>
   );
 }
@@ -801,6 +903,7 @@ type RowProps = {
   isAnchor?: boolean;
   hlApr?: number;
   hlX?: number;
+  hlMark?: number | null;
   active?: boolean;
   onPick?: () => void;
 };
@@ -813,9 +916,17 @@ function VenueRow({
   isAnchor,
   hlApr,
   hlX,
+  hlMark,
   active,
   onPick,
 }: RowProps) {
+  // Per-venue basis vs HL as a signed %. Null when either leg is missing a
+  // price. Anchor row shows "anchor" instead of a delta.
+  const basisPct =
+    !isAnchor && venue.markPx != null && hlMark != null && hlMark > 0
+      ? ((venue.markPx - hlMark) / hlMark) * 100
+      : null;
+
   const href = venueTradeUrl(venue.venue, coin);
   const launch = href ? (
     <a
@@ -860,6 +971,23 @@ function VenueRow({
             className={`fc-venue-delta ${venue.aprPct - (hlApr ?? 0) >= 0 ? "up" : "down"}`}
           >
             Δ {fmtApr(venue.aprPct - (hlApr ?? 0))}
+          </span>
+        )}
+      </div>
+      <div className="fc-venue-px">
+        <span className="fc-venue-mark" title="Mark / index price">
+          {fmtPx(venue.markPx)}
+        </span>
+        {isAnchor ? (
+          <span className="fc-venue-basis anchor">anchor</span>
+        ) : basisPct == null ? (
+          <span className="fc-venue-basis dim">—</span>
+        ) : (
+          <span
+            className={`fc-venue-basis ${basisPct >= 0 ? "up" : "down"}`}
+            title="Price basis vs HL"
+          >
+            {fmtBasisPct(basisPct)}
           </span>
         )}
       </div>

@@ -23,7 +23,14 @@ import HypurrNftChart from "./HypurrNftChart";
 
 const DEFAULT_RAW_COIN = "HYPE";
 
-type TabId = "twaps" | "funding" | "liquidation" | "stops" | "stocks" | "nft";
+type TabId =
+  | "twaps"
+  | "funding"
+  | "arb"
+  | "liquidation"
+  | "stops"
+  | "stocks"
+  | "nft";
 
 type TabDef = {
   id: TabId;
@@ -43,6 +50,7 @@ type TabDef = {
 const TABS: TabDef[] = [
   { id: "twaps", label: "TWAPs", isAvailable: () => true },
   { id: "funding", label: "FR", isAvailable: (c) => c.hasPerp },
+  { id: "arb", label: "Arb", isAvailable: (c) => c.hasPerp },
   { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasMainPerp },
   { id: "stops", label: "Stops", isAvailable: (c) => c.hasMainPerp },
   { id: "stocks", label: "Stocks", isAvailable: (c) => c.category === "stocks" },
@@ -237,10 +245,10 @@ export default function App() {
         <TwapPanel coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
       )}
       {activeTab === "funding" && (
-        <>
-          <FundingRatePanel coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
-          <FundingComparePanel coin={resolvedCoinId} refreshKey={refreshKey} />
-        </>
+        <FundingRatePanel coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
+      )}
+      {activeTab === "arb" && (
+        <FundingComparePanel coin={resolvedCoinId} refreshKey={refreshKey} />
       )}
       {activeTab === "liquidation" && (
         <LiquidationMap

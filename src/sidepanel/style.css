@@ -1442,6 +1442,40 @@ h1 {
   color: var(--text-dim);
 }
 
+/* Selected pair badge — the headline of the arb island. Each leg sits in a
+   colored pill matching the chart legend (HL = fr-ref blue, CP = warn orange)
+   so the user can read off which two venues the trade legs and chart lines
+   correspond to without searching the page. */
+.fc-arb-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.fc-arb-pair-leg {
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+.fc-arb-pair-leg.hl {
+  color: var(--fr-ref);
+}
+.fc-arb-pair-leg.cp {
+  color: var(--warn);
+}
+.fc-arb-pair-sep {
+  color: var(--text-mute);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
 .fc-best {
   margin-left: 5px;
   font-size: 0.92em;
@@ -1527,6 +1561,11 @@ h1 {
   font-variant-numeric: tabular-nums;
   color: var(--text-mute);
 }
+.fc-leg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
 .fc-leg b {
   font-weight: 700;
 }
@@ -1535,6 +1574,60 @@ h1 {
 }
 .fc-leg.short b {
   color: var(--sell);
+}
+.fc-leg-side {
+  color: var(--text);
+}
+.fc-leg-px {
+  color: var(--text-dim);
+  font-size: 0.56rem;
+}
+
+/* Two-up "FR spread / Basis" readout under the long/short legs. Splits the
+   trade's edge into its two components so a trader can see at a glance whether
+   it's basis-heavy (capturable now) or carry-heavy (only realized over time). */
+.fc-arb-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 2px;
+}
+.fc-arb-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 7px;
+  background: var(--bg-tile-strong);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+}
+.fc-arb-metric-label {
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.fc-arb-metric-val {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.fc-arb-metric-val.up {
+  color: var(--buy);
+}
+.fc-arb-metric-val.down {
+  color: var(--sell);
+}
+.fc-arb-metric-val.dim {
+  color: var(--text-dim);
+}
+.fc-arb-metric-sub {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
 }
 .fc-flip {
   display: inline-flex;
@@ -1923,6 +2016,51 @@ button.fc-venue:hover {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 0.48rem;
+}
+
+/* mark price + basis-vs-HL column. Sits between the APR readout and the
+   countdown so a trader can scan price-gap and FR-gap side by side. */
+.fc-venue-px {
+  flex: none;
+  width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+.fc-venue-mark {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.fc-venue-basis {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.fc-venue-basis.up {
+  color: var(--buy);
+}
+.fc-venue-basis.down {
+  color: var(--sell);
+}
+.fc-venue-basis.anchor {
+  color: var(--text-dim);
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.48rem;
+}
+.fc-venue-basis.dim {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* Shrink the APR diverging-bar track so price column fits without crowding. */
+.fc-venue-track {
+  min-width: 28px;
 }
 
 /* next-funding countdown column */
