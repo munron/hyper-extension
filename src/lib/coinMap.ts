@@ -1,6 +1,7 @@
 import {
   fetchMeta,
   fetchPerpConciseAnnotations,
+  fetchPerpDexs,
   fetchSpotMeta,
   type PerpAnnotation,
 } from "./hyperliquid";
@@ -11,13 +12,19 @@ export type CoinIndex = {
   displayNameToCoinId: Record<string, string>;
   // coinId -> concise annotation (no description)
   annotations: Record<string, PerpAnnotation>;
-  // perp coin name (e.g. "HYPE") -> perp asset id (universe index)
+  // perp coin name (e.g. "HYPE", "xyz:BRENTOIL") -> perp asset id within its
+  // dex's universe. For sub-DEX coins this id is NOT a global asset id and
+  // shouldn't be used as one — only the presence/absence of the key matters
+  // for hasPerp gating; main-DEX-only consumers (Liquidation, Stops) should
+  // also check that the coin name has no "<dex>:" prefix.
   perpAssetIdByCoin: Record<string, number>;
   // spot token name (e.g. "HYPE") -> spot asset ids (10000 + spot universe index)
   spotAssetIdsByToken: Record<string, number[]>;
 };
 
-const CACHE_KEY = "hyperliquid:coinIndex";
+// v2: now includes sub-DEX (e.g. xyz, flx) perps in perpAssetIdByCoin so the
+// FR tab surfaces commodities/stocks/FX. Bump invalidates older caches.
+const CACHE_KEY = "hyperliquid:coinIndex:v2";
 const CACHE_TTL_MS = 1000 * 60 * 60 * 6;
 
 async function loadCachedIndex(): Promise<CoinIndex | null> {
@@ -43,11 +50,23 @@ async function saveCachedIndex(index: CoinIndex): Promise<void> {
 }
 
 export async function buildCoinIndex(): Promise<CoinIndex> {
-  const [entries, meta, spotMeta] = await Promise.all([
+  const [entries, meta, spotMeta, perpDexs] = await Promise.all([
     fetchPerpConciseAnnotations(),
     fetchMeta(),
     fetchSpotMeta(),
+    fetchPerpDexs().catch(() => [] as Awaited<ReturnType<typeof fetchPerpDexs>>),
   ]);
+  // Sub-DEX universes (xyz, flx, …) host commodities/stocks/FX whose names
+  // are already namespaced like "xyz:BRENTOIL". Merge them in so the FR tab
+  // becomes available; individual fetchers in hyperliquid.ts route the right
+  // `dex` parameter from the coin's prefix. The first slot in perpDexs is null
+  // (the main DEX, already fetched above).
+  const subDexNames = perpDexs
+    .filter((d): d is NonNullable<typeof d> => d != null)
+    .map((d) => d.name);
+  const subMetas = await Promise.all(
+    subDexNames.map((name) => fetchMeta(name).catch(() => null)),
+  );
 
   const annotations: Record<string, PerpAnnotation> = {};
   const displayNameToCoinId: Record<string, string> = {};
@@ -70,6 +89,14 @@ export async function buildCoinIndex(): Promise<CoinIndex> {
   meta.universe.forEach((asset, idx) => {
     if (asset?.name) perpAssetIdByCoin[asset.name] = idx;
   });
+  for (const sub of subMetas) {
+    if (!sub) continue;
+    sub.universe.forEach((asset, idx) => {
+      if (asset?.name && !(asset.name in perpAssetIdByCoin)) {
+        perpAssetIdByCoin[asset.name] = idx;
+      }
+    });
+  }
 
   const tokensByIndex = new Map<number, string>();
   for (const tok of spotMeta.tokens) {

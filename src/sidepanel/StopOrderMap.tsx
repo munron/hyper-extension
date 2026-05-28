@@ -1,14 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
-  fetchLiquidationBandDetails,
+  fetchStopOrderBandDetails,
   rankNearestPositions,
 } from "../lib/hyperdash";
 import { type CoinIndex } from "../lib/coinMap";
 import { getPerpPrice } from "../lib/prices";
 
+// Aligned with the Liquidation map's ±20% window so the two panels are
+// directly comparable and the near-price zone (where the actionable stop
+// clusters sit) reads clearly. Far-out stops are dropped intentionally.
 const PRICE_RANGE_PCT = 0.2;
-// Target number of price bins across the ±20% window. bandSize is derived
-// from this so the chart looks consistent across coins of any price.
+// Target number of price bins across the window. bandSize is derived from
+// this so the chart looks consistent across coins of any price.
 const TARGET_BANDS = 250;
 
 const CHART_WIDTH = 320;
@@ -23,6 +26,13 @@ function fmtUsd(n: number): string {
   if (n >= 1e3) return "$" + (n / 1e3).toFixed(2) + "K";
   if (n >= 1) return "$" + n.toFixed(2);
   return "$" + n.toFixed(4);
+}
+
+// Axis labels can be exactly $0 for the stop chart's left edge; the
+// general fmtUsd uses "—" for non-positive which would read wrong there.
+function fmtAxis(n: number): string {
+  if (n === 0) return "$0";
+  return fmtUsd(n);
 }
 
 function fmtCount(n: number): string {
@@ -42,9 +52,8 @@ function shortAddr(addr: string): string {
   return addr.slice(0, 6) + "…" + addr.slice(-4);
 }
 
-// Playful panic gauge for the "nearest positions" list: the closer the
-// liquidation line, the more frightened the cat. rankIndex 0 is the
-// nearest → level 3 (terrified), then 2, then 1.
+// Playful panic gauge: the nearest stop line gets the most frightened cat.
+// rankIndex 0 → level 3 (terrified), then 2, then 1.
 const PANIC_FACES = ["😺", "😿", "🙀"] as const; // [calm, worried, terrified]
 const PANIC_LABELS = ["plenty of room", "getting close", "very close!"] as const;
 function panic(rankIndex: number): { face: string; label: string; level: number } {
@@ -52,8 +61,6 @@ function panic(rankIndex: number): { face: string; label: string; level: number 
   return { face: PANIC_FACES[level - 1], label: PANIC_LABELS[level - 1], level };
 }
 
-// Round a raw step up to a "nice" 1/2/2.5/5 × 10^k value so band edges
-// land on readable price levels.
 function niceStep(raw: number): number {
   if (!(raw > 0)) return 1;
   const pow = Math.pow(10, Math.floor(Math.log10(raw)));
@@ -62,59 +69,52 @@ function niceStep(raw: number): number {
   return m * pow;
 }
 
-type Position = {
-  address: string;
-  price: number;
-  size: number; // base-token magnitude (abs)
-  side: "long" | "short";
-};
+// size is signed: positive = buy stop, negative = sell stop.
+type Stop = { address: string; price: number; size: number };
 
-type LiqData = {
+type StopData = {
   cur: number;
   lo: number;
   hi: number;
   bandSize: number;
-  positions: Position[];
-  longCount: number;
-  shortCount: number;
+  stops: Stop[];
+  buyCount: number;
+  sellCount: number;
 };
 
 type Props = { coin: string; coinIndex: CoinIndex | null; refreshKey: number };
 
-export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
-  const [data, setData] = useState<LiqData | null>(null);
+export default function StopOrderMap({ coin, coinIndex, refreshKey }: Props) {
+  const [data, setData] = useState<StopData | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [hoverX, setHoverX] = useState<number | null>(null);
   const [selectedBandKey, setSelectedBandKey] = useState<string | null>(null);
-  const [showAllTraders, setShowAllTraders] = useState(false);
+  const [showAllStops, setShowAllStops] = useState(false);
   const [visibleSeries, setVisibleSeries] = useState({
-    longBars: true,
-    shortBars: true,
-    cumLong: true,
-    cumShort: true,
+    buyStops: true,
+    sellStops: true,
+    cumBuys: true,
+    cumSells: true,
   });
   const toggleSeries = (k: keyof typeof visibleSeries) =>
     setVisibleSeries((s) => ({ ...s, [k]: !s[k] }));
   const chartRef = useRef<SVGSVGElement | null>(null);
 
-  // Reset hover + selection when data changes / coin switches.
   useEffect(() => {
     setHoverX(null);
     setSelectedBandKey(null);
-    setShowAllTraders(false);
+    setShowAllStops(false);
   }, [coin, refreshKey]);
 
-  // Collapse the trader list whenever the user picks a different band.
   useEffect(() => {
-    setShowAllTraders(false);
+    setShowAllStops(false);
   }, [selectedBandKey]);
 
-  // Single source of truth: one range-scoped currentLiquidationBandDetailsV2
-  // call returns every at-risk position in the ±20% window (verified
-  // uncapped). We bucket these client-side into the chart bars, the totals,
-  // and the bottom list — so everything shown is live, with no hourly
-  // snapshot lag to reconcile.
+  // Single source of truth: one range-scoped currentStopOrderBandDetailsV2
+  // call returns every resting stop in the 0..2×cur window (verified
+  // uncapped). We bucket these client-side into the chart bars, the
+  // cumulative curves, the totals, and the bottom list.
   useEffect(() => {
     if (!coinIndex) return;
     const perpAssetId = coinIndex.perpAssetIdByCoin[coin];
@@ -139,18 +139,16 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
       const lo = price * (1 - PRICE_RANGE_PCT);
       const hi = price * (1 + PRICE_RANGE_PCT);
       try {
-        const d = await fetchLiquidationBandDetails({
+        const d = await fetchStopOrderBandDetails({
           coin,
           minPrice: lo,
           maxPrice: hi,
         });
         if (cancelled) return;
-        const positions: Position[] = d.liquidations.map((p) => ({
-          address: p.address,
-          price: p.price,
-          size: Math.abs(p.amount),
-          // A long is liquidated below current price, a short above.
-          side: p.price < price ? "long" : "short",
+        const stops: Stop[] = d.stops.map((s) => ({
+          address: s.address,
+          price: s.price,
+          size: s.size,
         }));
         const bandSize = niceStep((hi - lo) / TARGET_BANDS);
         setData({
@@ -158,13 +156,13 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
           lo,
           hi,
           bandSize,
-          positions,
-          longCount: d.longCount,
-          shortCount: d.shortCount,
+          stops,
+          buyCount: d.buyCount,
+          sellCount: d.sellCount,
         });
       } catch (e) {
         if (!cancelled) {
-          console.warn("fetchLiquidationBandDetails failed", e);
+          console.warn("fetchStopOrderBandDetails failed", e);
           setError(e instanceof Error ? e.message : String(e));
           setData(null);
         }
@@ -180,31 +178,44 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
 
   const view = useMemo(() => {
     if (!data) return null;
-    const { cur, lo, hi, bandSize, positions } = data;
+    const { cur, lo, hi, bandSize, stops } = data;
     if (!(hi > lo) || !(bandSize > 0)) return null;
 
     type Bar = {
       mid: number;
       minPrice: number;
       maxPrice: number;
-      size: number; // base-token magnitude
+      buySize: number;
+      sellSize: number;
+      buyCount: number;
+      sellCount: number;
+      size: number;
+      buyUsd: number;
+      sellUsd: number;
       usd: number;
-      count: number;
-      side: "long" | "short";
+      side: "buy" | "sell";
       x: number;
       w: number;
     };
 
-    // Bucket positions into fixed-width bins aligned to bandSize multiples.
-    const agg = new Map<number, { size: number; count: number }>();
-    for (const p of positions) {
-      const idx = Math.floor(p.price / bandSize);
-      const cell = agg.get(idx);
-      if (cell) {
-        cell.size += p.size;
-        cell.count += 1;
+    // Bucket stops into fixed-width bins, splitting by sign.
+    const agg = new Map<
+      number,
+      { buySize: number; sellSize: number; buyCount: number; sellCount: number }
+    >();
+    for (const s of stops) {
+      const idx = Math.floor(s.price / bandSize);
+      let cell = agg.get(idx);
+      if (!cell) {
+        cell = { buySize: 0, sellSize: 0, buyCount: 0, sellCount: 0 };
+        agg.set(idx, cell);
+      }
+      if (s.size >= 0) {
+        cell.buySize += s.size;
+        cell.buyCount += 1;
       } else {
-        agg.set(idx, { size: p.size, count: 1 });
+        cell.sellSize += -s.size;
+        cell.sellCount += 1;
       }
     }
 
@@ -216,7 +227,9 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
       const maxPrice = minPrice + bandSize;
       if (maxPrice <= lo || minPrice >= hi) continue;
       const mid = minPrice + bandSize / 2;
-      const usd = cell.size * mid;
+      const buyUsd = cell.buySize * mid;
+      const sellUsd = cell.sellSize * mid;
+      const usd = buyUsd + sellUsd;
       if (usd === 0) continue;
       if (usd > maxUsd) maxUsd = usd;
       const x = ((minPrice - lo) / (hi - lo)) * innerW + CHART_PADDING_X;
@@ -225,10 +238,15 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
         mid,
         minPrice,
         maxPrice,
-        size: cell.size,
+        buySize: cell.buySize,
+        sellSize: cell.sellSize,
+        buyCount: cell.buyCount,
+        sellCount: cell.sellCount,
+        size: cell.buySize + cell.sellSize,
+        buyUsd,
+        sellUsd,
         usd,
-        count: cell.count,
-        side: mid < cur ? "long" : "short",
+        side: cell.buySize >= cell.sellSize ? "buy" : "sell",
         x,
         w,
       });
@@ -237,44 +255,35 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
 
     const curX = ((cur - lo) / (hi - lo)) * innerW + CHART_PADDING_X;
 
-    let totalLongUsd = 0;
-    let totalShortUsd = 0;
-    for (const b of bars) {
-      if (b.side === "long") totalLongUsd += b.usd;
-      else totalShortUsd += b.usd;
-    }
-
-    // Cumulative liquidation curves, anchored at cur (0) and growing
-    // outward. longCum at price X ≤ cur = total long USD that would be
-    // liquidated by the time price falls to X; shortCum at X ≥ cur = total
-    // short USD by the time price rises to X. A liquidation-cascade profile.
-    let cumL = 0;
-    const longCumPts: { x: number; cum: number }[] = [];
-    const bandsBelow = bars
-      .filter((b) => b.side === "long")
-      .sort((a, b) => b.mid - a.mid); // cur → downward
-    for (const b of bandsBelow) {
-      cumL += b.usd;
-      longCumPts.push({ x: b.x + b.w / 2, cum: cumL });
-    }
-    longCumPts.reverse(); // ascending x
-    longCumPts.push({ x: curX, cum: 0 }); // anchor at cur (rightmost)
-
+    // Cumulative curves: anchored at cur (0) and growing outward.
     let cumS = 0;
-    const shortCumPts: { x: number; cum: number }[] = [{ x: curX, cum: 0 }];
+    const sellCumPts: { x: number; cum: number }[] = [];
+    const bandsBelow = bars
+      .filter((b) => b.mid < cur)
+      .sort((a, b) => b.mid - a.mid); // descending mid
+    for (const b of bandsBelow) {
+      cumS += b.sellSize;
+      sellCumPts.push({ x: b.x + b.w / 2, cum: cumS });
+    }
+    sellCumPts.reverse(); // ascending x
+    sellCumPts.push({ x: curX, cum: 0 }); // anchor at cur (rightmost)
+
+    let cumB = 0;
+    const buyCumPts: { x: number; cum: number }[] = [{ x: curX, cum: 0 }];
     const bandsAbove = bars
-      .filter((b) => b.side === "short")
-      .sort((a, b) => a.mid - b.mid); // cur → upward
+      .filter((b) => b.mid >= cur)
+      .sort((a, b) => a.mid - b.mid);
     for (const b of bandsAbove) {
-      cumS += b.usd;
-      shortCumPts.push({ x: b.x + b.w / 2, cum: cumS });
+      cumB += b.buySize;
+      buyCumPts.push({ x: b.x + b.w / 2, cum: cumB });
     }
 
     const maxCum = Math.max(
-      longCumPts[0]?.cum ?? 0,
-      shortCumPts[shortCumPts.length - 1]?.cum ?? 0,
+      sellCumPts[0]?.cum ?? 0,
+      buyCumPts[buyCumPts.length - 1]?.cum ?? 0,
       1,
     );
+
     const cumYTop = CHART_PADDING_Y;
     const cumYBottom = CHART_HEIGHT - CHART_PADDING_Y;
     const cumY = (cum: number) =>
@@ -288,8 +297,15 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
                 `${i === 0 ? "M" : "L"} ${p.x.toFixed(2)} ${cumY(p.cum).toFixed(2)}`,
             )
             .join(" ");
-    const longCumPath = toPath(longCumPts);
-    const shortCumPath = toPath(shortCumPts);
+    const sellCumPath = toPath(sellCumPts);
+    const buyCumPath = toPath(buyCumPts);
+
+    let totalBuyUsd = 0;
+    let totalSellUsd = 0;
+    for (const b of bars) {
+      totalBuyUsd += b.buyUsd;
+      totalSellUsd += b.sellUsd;
+    }
 
     return {
       bars,
@@ -298,16 +314,14 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
       lo,
       hi,
       cur,
-      totalLongUsd,
-      totalShortUsd,
-      longCumPath,
-      shortCumPath,
+      totalBuyUsd,
+      totalSellUsd,
+      sellCumPath,
+      buyCumPath,
       maxCum,
     };
   }, [data]);
 
-  // Snap hoverX to the nearest visible bar. Hoisted above early returns to
-  // keep hook ordering stable.
   const hoveredBar = useMemo(() => {
     if (!view || hoverX === null || view.bars.length === 0) return null;
     let idx = view.bars.findIndex((b) => hoverX >= b.x && hoverX <= b.x + b.w);
@@ -340,7 +354,7 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
     return (
       <section className="liq">
         <div className="liq-head">
-          <span className="liq-head-label">Liquidation Map</span>
+          <span className="liq-head-label">Stop Order Map</span>
         </div>
         <div className="liq-status">Loading…</div>
       </section>
@@ -350,7 +364,7 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
     return (
       <section className="liq">
         <div className="liq-head">
-          <span className="liq-head-label">Liquidation Map</span>
+          <span className="liq-head-label">Stop Order Map</span>
         </div>
         <div className="liq-status">No perpetual market for {coin}</div>
       </section>
@@ -360,8 +374,8 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
     return (
       <section className="liq">
         <div className="liq-head">
-          <span className="liq-head-label">Liquidation Map</span>
-          <span className="liq-head-window">±20% · live</span>
+          <span className="liq-head-label">Stop Order Map</span>
+          <span className="liq-head-window">live</span>
         </div>
         <div className="liq-status">Loading…</div>
       </section>
@@ -371,17 +385,15 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
     return (
       <section className="liq">
         <div className="liq-head">
-          <span className="liq-head-label">Liquidation Map</span>
+          <span className="liq-head-label">Stop Order Map</span>
         </div>
         <div className={`liq-status ${error ? "liq-error" : ""}`}>
-          {error ? "Failed to load" : "No liquidation data"}
+          {error ? "Failed to load" : "No stop order data"}
         </div>
       </section>
     );
   }
 
-  // The inspector prefers the clicked band; hovering shows the same content
-  // (it's all in-memory now, so there's no per-band fetch to defer).
   const inspectBar = selectedBar ?? hoveredBar;
   const hoveredBarIdx = hoveredBar ? view.bars.indexOf(hoveredBar) : -1;
   const selectedBarIdx = selectedBar ? view.bars.indexOf(selectedBar) : -1;
@@ -389,40 +401,44 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
     ? ((inspectBar.mid - view.cur) / view.cur) * 100
     : 0;
 
-  // Positions inside the inspected band, resolved straight from memory.
   const sortedInBand = inspectBar
-    ? data.positions
+    ? data.stops
         .filter(
-          (p) => p.price >= inspectBar.minPrice && p.price < inspectBar.maxPrice,
+          (s) => s.price >= inspectBar.minPrice && s.price < inspectBar.maxPrice,
         )
-        .sort((a, b) => b.size * b.price - a.size * a.price)
+        .sort((a, b) => Math.abs(b.size) * b.price - Math.abs(a.size) * a.price)
     : [];
-  const COLLAPSED_TRADER_COUNT = 3;
-  // Only the pinned (clicked) band gets the expandable full list; a hover
-  // preview stays compact since the band changes as the cursor moves.
+  const COLLAPSED_STOP_COUNT = 3;
   const visibleInBand =
-    selectedBar && showAllTraders
+    selectedBar && showAllStops
       ? sortedInBand
-      : sortedInBand.slice(0, COLLAPSED_TRADER_COUNT);
-  const hiddenTraderCount = Math.max(
-    0,
-    sortedInBand.length - COLLAPSED_TRADER_COUNT,
-  );
+      : sortedInBand.slice(0, COLLAPSED_STOP_COUNT);
+  const hiddenStopCount = Math.max(0, sortedInBand.length - COLLAPSED_STOP_COUNT);
 
-  // Bottom list: the full position pool lets us surface the *nearest*
-  // sizeable positions per side, not just the few biggest.
-  const longPool = data.positions.filter((p) => p.side === "long");
-  const shortPool = data.positions.filter((p) => p.side === "short");
-  const topLong = rankNearestPositions(longPool, view.cur);
-  const topShort = rankNearestPositions(shortPool, view.cur);
+  // Bottom list: nearest sizeable stops per side from the full pool.
+  const buyPool = data.stops.filter((s) => s.size >= 0);
+  const sellPool = data.stops.filter((s) => s.size < 0);
+  const topBuy = rankNearestPositions(buyPool, view.cur);
+  const topSell = rankNearestPositions(sellPool, view.cur);
+
+  const metaText = (() => {
+    if (!inspectBar) return null;
+    const buyCount = inspectBar.buyCount;
+    const sellCount = inspectBar.sellCount;
+    const totalCount = buyCount + sellCount;
+    if (buyCount > 0 && sellCount > 0) {
+      return `${totalCount} stops in this band (${buyCount} buy · ${sellCount} sell)`;
+    }
+    const word = totalCount === 1 ? "stop" : "stops";
+    if (sellCount > 0) return `${sellCount} sell ${word} in this band`;
+    return `${buyCount} buy ${word} in this band`;
+  })();
 
   const handleContainerMove = (e: React.MouseEvent<HTMLDivElement>) => {
     const svg = chartRef.current;
     if (!svg) return;
     const rect = svg.getBoundingClientRect();
     if (rect.width <= 0) return;
-    // Freeze hoverX once the cursor drops below the chart so the user can
-    // move into the inspector and click trader links without losing the band.
     if (e.clientY < rect.top || e.clientY > rect.bottom) return;
     const x = ((e.clientX - rect.left) / rect.width) * CHART_WIDTH;
     setHoverX(Math.max(0, Math.min(CHART_WIDTH, x)));
@@ -439,24 +455,24 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
   return (
     <section className="liq">
       <div className="liq-head">
-        <span className="liq-head-label">Liquidation Map</span>
+        <span className="liq-head-label">Stop Order Map</span>
         <span className="liq-head-window">±20% · live</span>
       </div>
 
       <div className="liq-totals">
         <div className="liq-total long">
           <div className="liq-total-top">
-            <span className="liq-total-tag">▼ LONG AT RISK</span>
-            <span className="liq-total-count">{fmtCount(data.longCount)}</span>
+            <span className="liq-total-tag">▼ SELL STOPS</span>
+            <span className="liq-total-count">{fmtCount(data.sellCount)}</span>
           </div>
-          <div className="liq-total-value">{fmtUsd(view.totalLongUsd)}</div>
+          <div className="liq-total-value">{fmtUsd(view.totalSellUsd)}</div>
         </div>
         <div className="liq-total short">
           <div className="liq-total-top">
-            <span className="liq-total-tag">▲ SHORT AT RISK</span>
-            <span className="liq-total-count">{fmtCount(data.shortCount)}</span>
+            <span className="liq-total-tag">▲ BUY STOPS</span>
+            <span className="liq-total-count">{fmtCount(data.buyCount)}</span>
           </div>
-          <div className="liq-total-value">{fmtUsd(view.totalShortUsd)}</div>
+          <div className="liq-total-value">{fmtUsd(view.totalBuyUsd)}</div>
         </div>
       </div>
 
@@ -468,10 +484,10 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
         <div className="liq-legend" role="group" aria-label="Toggle chart series">
           {(
             [
-              { key: "longBars", label: "Longs", swatch: "sell" },
-              { key: "shortBars", label: "Shorts", swatch: "buy" },
-              { key: "cumLong", label: "Cum Longs", swatch: "cum-sell" },
-              { key: "cumShort", label: "Cum Shorts", swatch: "cum-buy" },
+              { key: "sellStops", label: "Sell Stops", swatch: "sell" },
+              { key: "buyStops", label: "Buy Stops", swatch: "buy" },
+              { key: "cumSells", label: "Cum Sells", swatch: "cum-sell" },
+              { key: "cumBuys", label: "Cum Buys", swatch: "cum-buy" },
             ] as const
           ).map((item) => {
             const on = visibleSeries[item.key];
@@ -497,39 +513,54 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
             viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
             preserveAspectRatio="none"
             role="img"
-            aria-label={`Liquidation map for ${coin} — click a band to inspect at-risk positions`}
+            aria-label={`Stop order map for ${coin} — click a band to inspect individual stop orders`}
             onClick={handleChartClick}
           >
+            {/* Stacked bars: sell on bottom, buy on top. */}
             {view.bars.map((b, i) => {
-              if (b.side === "long" && !visibleSeries.longBars) return null;
-              if (b.side === "short" && !visibleSeries.shortBars) return null;
-              const h =
-                view.maxUsd > 0
-                  ? (b.usd / view.maxUsd) * (CHART_HEIGHT - 2 * CHART_PADDING_Y)
-                  : 0;
-              const y = CHART_HEIGHT - CHART_PADDING_Y - h;
+              const innerH = CHART_HEIGHT - 2 * CHART_PADDING_Y;
+              const sellH =
+                view.maxUsd > 0 ? (b.sellUsd / view.maxUsd) * innerH : 0;
+              const buyH =
+                view.maxUsd > 0 ? (b.buyUsd / view.maxUsd) * innerH : 0;
+              const baseline = CHART_HEIGHT - CHART_PADDING_Y;
+              const sellOn = visibleSeries.sellStops && b.sellUsd > 0;
+              const buyOn = visibleSeries.buyStops && b.buyUsd > 0;
               const isHover = hoveredBarIdx === i;
               const isSelected = selectedBarIdx === i;
-              const cls =
-                (b.side === "long" ? "liq-bar-long" : "liq-bar-short") +
+              const stateCls =
                 (isHover && !isSelected ? " liq-bar-hover" : "") +
                 (isSelected ? " liq-bar-selected" : "");
+              const w = Math.max(0.6, b.w - 0.4);
+              const buyBaseline = sellOn ? baseline - sellH : baseline;
               return (
-                <rect
-                  key={i}
-                  x={b.x}
-                  y={y}
-                  width={Math.max(0.6, b.w - 0.4)}
-                  height={h}
-                  className={cls}
-                />
+                <g key={i}>
+                  {sellOn && (
+                    <rect
+                      x={b.x}
+                      y={baseline - sellH}
+                      width={w}
+                      height={sellH}
+                      className={`liq-bar-long${stateCls}`}
+                    />
+                  )}
+                  {buyOn && (
+                    <rect
+                      x={b.x}
+                      y={buyBaseline - buyH}
+                      width={w}
+                      height={buyH}
+                      className={`liq-bar-short${stateCls}`}
+                    />
+                  )}
+                </g>
               );
             })}
-            {visibleSeries.cumLong && view.longCumPath && (
-              <path d={view.longCumPath} className="liq-cum-sell-line" />
+            {visibleSeries.cumSells && view.sellCumPath && (
+              <path d={view.sellCumPath} className="liq-cum-sell-line" />
             )}
-            {visibleSeries.cumShort && view.shortCumPath && (
-              <path d={view.shortCumPath} className="liq-cum-buy-line" />
+            {visibleSeries.cumBuys && view.buyCumPath && (
+              <path d={view.buyCumPath} className="liq-cum-buy-line" />
             )}
             <line
               x1={view.curX}
@@ -558,9 +589,9 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
             )}
           </svg>
           <div className="liq-axis">
-            <span>{fmtUsd(view.lo)}</span>
-            <span className="liq-axis-cur">{fmtUsd(view.cur)}</span>
-            <span>{fmtUsd(view.hi)}</span>
+            <span>{fmtAxis(view.lo)}</span>
+            <span className="liq-axis-cur">{fmtAxis(view.cur)}</span>
+            <span>{fmtAxis(view.hi)}</span>
           </div>
         </div>
 
@@ -572,7 +603,7 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
             <>
               <div className="liq-inspector-head">
                 <span className={`liq-inspector-tag ${inspectBar.side}`}>
-                  {inspectBar.side === "long" ? "▼ LONG" : "▲ SHORT"}
+                  {inspectBar.side === "sell" ? "▼ SELL" : "▲ BUY"}
                 </span>
                 <span className="liq-inspector-range">
                   {fmtUsd(inspectBar.minPrice)} – {fmtUsd(inspectBar.maxPrice)}
@@ -598,64 +629,69 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
                   </button>
                 )}
               </div>
-              <div className="liq-inspector-meta">
-                <span>
-                  {inspectBar.count}{" "}
-                  {inspectBar.side === "long" ? "long" : "short"}{" "}
-                  {inspectBar.count === 1 ? "position" : "positions"} in this band
-                </span>
-              </div>
+              {metaText && (
+                <div className="liq-inspector-meta">
+                  <span>{metaText}</span>
+                </div>
+              )}
               {visibleInBand.length > 0 ? (
                 <>
                   <ul
-                    className={`liq-inspector-traders${selectedBar && showAllTraders ? " liq-inspector-traders-scroll" : ""}`}
+                    className={`liq-inspector-traders${selectedBar && showAllStops ? " liq-inspector-traders-scroll" : ""}`}
                   >
-                    {visibleInBand.map((t) => {
-                      const usd = t.size * t.price;
+                    {visibleInBand.map((s) => {
+                      const usd = Math.abs(s.size) * s.price;
+                      const rowSide: "buy" | "sell" = s.size >= 0 ? "buy" : "sell";
                       return (
-                        <li key={`${t.address}-${t.price}`}>
+                        <li key={`${s.address}-${s.price}`}>
                           <a
                             className="liq-inspector-trader"
-                            href={`https://hypurrscan.io/address/${t.address}`}
+                            href={`https://hypurrscan.io/address/${s.address}`}
                             target="_blank"
                             rel="noopener noreferrer"
-                            title={`${t.address} — liq @ $${fmtPrice(t.price)}`}
+                            title={`${s.address} — ${rowSide} stop @ $${fmtPrice(s.price)}`}
                           >
+                            <span
+                              className={`liq-inspector-trader-side ${rowSide}`}
+                              aria-label={rowSide === "buy" ? "buy stop" : "sell stop"}
+                            >
+                              {rowSide === "buy" ? "▲" : "▼"}
+                            </span>
                             <span className="liq-inspector-trader-price">
-                              ${fmtPrice(t.price)}
+                              ${fmtPrice(s.price)}
                             </span>
                             <span className="liq-inspector-trader-size">
                               {fmtUsd(usd)}
                             </span>
                             <span className="liq-inspector-trader-addr">
-                              {shortAddr(t.address)}
+                              {shortAddr(s.address)}
                             </span>
                           </a>
                         </li>
                       );
                     })}
                   </ul>
-                  {selectedBar && hiddenTraderCount > 0 && (
+                  {selectedBar && hiddenStopCount > 0 && (
                     <button
                       type="button"
                       className="liq-inspector-toggle"
-                      onClick={() => setShowAllTraders((v) => !v)}
-                      aria-expanded={showAllTraders}
+                      onClick={() => setShowAllStops((v) => !v)}
+                      aria-expanded={showAllStops}
                     >
-                      {showAllTraders
-                        ? `▴ Show top ${COLLAPSED_TRADER_COUNT}`
-                        : `▾ Show all ${sortedInBand.length} positions (+${hiddenTraderCount})`}
+                      {showAllStops
+                        ? `▴ Show top ${COLLAPSED_STOP_COUNT}`
+                        : `▾ Show all ${sortedInBand.length} stops (+${hiddenStopCount})`}
                     </button>
                   )}
-                  {!selectedBar && hiddenTraderCount > 0 && (
+                  {!selectedBar && hiddenStopCount > 0 && (
                     <div className="liq-inspector-more-hint">
-                      +{hiddenTraderCount} more · click to pin
+                      +{hiddenStopCount} more · click to pin
                     </div>
                   )}
                 </>
               ) : (
                 <div className="liq-inspector-empty">
-                  No open positions in this band
+                  No stop orders in this band
                 </div>
               )}
             </>
@@ -664,28 +700,28 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
               <span className="liq-inspector-hint-icon" aria-hidden="true">
                 ▸
               </span>
-              Hover a band to see at-risk positions · click to pin
+              Hover a band to see stop orders · click to pin
             </div>
           )}
         </div>
       </div>
 
-      {(topLong.length > 0 || topShort.length > 0) && (
+      {(topSell.length > 0 || topBuy.length > 0) && (
         <div className="liq-top-section">
-          <div className="liq-top-cap">Nearest sizeable positions · ≥$0.5M</div>
+          <div className="liq-top-cap">Nearest sizeable stops · ≥$0.5M</div>
           <div className="liq-top">
-            {topLong.length > 0 && (
+            {topSell.length > 0 && (
               <ul className="liq-top-list">
-                {topLong.map((t, i) => {
+                {topSell.map((t, i) => {
                   const p = panic(i);
                   return (
-                    <li key={`L${t.address}-${t.price}`} className="long">
+                    <li key={`S${t.address}-${t.price}`} className="long">
                       <a
                         className="liq-top-link"
                         href={`https://hypurrscan.io/address/${t.address}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        title={`${t.address} — liq @ $${fmtPrice(t.price)} (${t.distPct.toFixed(1)}%) · ${p.label}`}
+                        title={`${t.address} — sell stop @ $${fmtPrice(t.price)} (${t.distPct.toFixed(1)}%) · ${p.label}`}
                       >
                         <span
                           className={`liq-top-panic panic-${p.level}`}
@@ -709,18 +745,18 @@ export default function LiquidationMap({ coin, coinIndex, refreshKey }: Props) {
                 })}
               </ul>
             )}
-            {topShort.length > 0 && (
+            {topBuy.length > 0 && (
               <ul className="liq-top-list">
-                {topShort.map((t, i) => {
+                {topBuy.map((t, i) => {
                   const p = panic(i);
                   return (
-                    <li key={`S${t.address}-${t.price}`} className="short">
+                    <li key={`B${t.address}-${t.price}`} className="short">
                       <a
                         className="liq-top-link"
                         href={`https://hypurrscan.io/address/${t.address}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        title={`${t.address} — liq @ $${fmtPrice(t.price)} (${t.distPct.toFixed(1)}%) · ${p.label}`}
+                        title={`${t.address} — buy stop @ $${fmtPrice(t.price)} (${t.distPct.toFixed(1)}%) · ${p.label}`}
                       >
                         <span
                           className={`liq-top-panic panic-${p.level}`}
