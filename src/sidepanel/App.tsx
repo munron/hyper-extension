@@ -20,6 +20,7 @@ import FundingRatePanel from "./FundingRatePanel";
 import FundingComparePanel from "./FundingComparePanel";
 import StocksPanel from "./StocksPanel";
 import HypurrNftChart from "./HypurrNftChart";
+import EventsPanel from "./EventsPanel";
 
 const DEFAULT_RAW_COIN = "HYPE";
 
@@ -27,6 +28,7 @@ type TabId =
   | "twaps"
   | "funding"
   | "arb"
+  | "events"
   | "liquidation"
   | "stops"
   | "stocks"
@@ -51,6 +53,18 @@ const TABS: TabDef[] = [
   { id: "twaps", label: "TWAPs", isAvailable: () => true },
   { id: "funding", label: "FR", isAvailable: (c) => c.hasPerp },
   { id: "arb", label: "Arb", isAvailable: (c) => c.hasPerp },
+  // Events only matter for HL's real-world-asset perps — equities, indices,
+  // commodities, FX, pre-IPO. Pure crypto tickers carry no macro calendar
+  // hooks worth showing, so hide the tab there.
+  {
+    id: "events",
+    label: "Events",
+    isAvailable: (c) =>
+      c.category != null &&
+      ["stocks", "indices", "commodities", "fx", "preipo"].includes(
+        c.category.toLowerCase(),
+      ),
+  },
   { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasMainPerp },
   { id: "stops", label: "Stops", isAvailable: (c) => c.hasMainPerp },
   { id: "stocks", label: "Stocks", isAvailable: (c) => c.category === "stocks" },
@@ -248,7 +262,18 @@ export default function App() {
         <FundingRatePanel coin={resolvedCoinId} coinIndex={coinIndex} refreshKey={refreshKey} />
       )}
       {activeTab === "arb" && (
-        <FundingComparePanel coin={resolvedCoinId} refreshKey={refreshKey} />
+        <FundingComparePanel
+          coin={resolvedCoinId}
+          category={annotation?.category ?? null}
+          refreshKey={refreshKey}
+        />
+      )}
+      {activeTab === "events" && (
+        <EventsPanel
+          coin={resolvedCoinId}
+          category={annotation?.category ?? null}
+          refreshKey={refreshKey}
+        />
       )}
       {activeTab === "liquidation" && (
         <LiquidationMap

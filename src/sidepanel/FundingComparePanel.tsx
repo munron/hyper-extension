@@ -8,6 +8,11 @@ import {
   type VenueFunding,
   type VenueResult,
 } from "../lib/exchanges";
+import {
+  commodityYahooSymbol,
+  fetchCommodityUnderlying,
+  type CommodityUnderlying,
+} from "../lib/commodities";
 
 // How often to silently re-fetch funding values in the background.
 const REFRESH_MS = 10_000;
@@ -57,9 +62,15 @@ function isUsable(v: VenueResult): v is VenueFunding {
   return v.available && Number.isFinite(v.aprPct);
 }
 
-type Props = { coin: string; refreshKey: number };
+type Props = {
+  coin: string;
+  // HL annotation category — used to decide whether to show the underlying
+  // futures reference (only meaningful for "commodities").
+  category: string | null;
+  refreshKey: number;
+};
 
-export default function FundingComparePanel({ coin, refreshKey }: Props) {
+export default function FundingComparePanel({ coin, category, refreshKey }: Props) {
   const [results, setResults] = useState<VenueResult[] | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -75,6 +86,12 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
     cp: FundingPoint[] | null;
   } | null>(null);
   const [historyLoading, setHistoryLoading] = useState(false);
+  // Underlying futures reference for commodity coins (null for non-commodities
+  // and for coins we haven't mapped). Refreshed on coin change + with the
+  // funding-rate refresh tick so basis stays in step with HL's mark.
+  const [underlying, setUnderlying] = useState<CommodityUnderlying | null>(null);
+  const isCommodity =
+    category === "commodities" && commodityYahooSymbol(coin) != null;
 
   useEffect(() => {
     let cancelled = false;
@@ -123,6 +140,35 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
   }, []);
+
+  // Underlying futures reference price (commodities only). Same auto-refresh
+  // cadence as the venue fundings so the displayed basis vs HL mark stays
+  // in sync with the venue rows.
+  useEffect(() => {
+    if (!isCommodity) {
+      setUnderlying(null);
+      return;
+    }
+    let cancelled = false;
+    const run = () => {
+      fetchCommodityUnderlying(coin)
+        .then((u) => {
+          if (!cancelled) setUnderlying(u);
+        })
+        .catch(() => {
+          // Yahoo hiccup — keep last good value on background ticks; on the
+          // initial load there's just nothing to show.
+        });
+    };
+    run();
+    const id = setInterval(() => {
+      if (!document.hidden) run();
+    }, REFRESH_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [coin, isCommodity, refreshKey]);
 
   const model = useMemo(() => {
     if (!results) return null;
@@ -248,6 +294,18 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
   return (
     <section className="fc">
       <Header />
+
+      {/* Commodities anchor to a real-world futures contract; surfacing the
+          CME / ICE front-month price lets the trader judge HL's perp premium
+          or discount vs the actual benchmark — a second basis edge beyond
+          cross-venue perp basis. */}
+      {isCommodity && (
+        <UnderlyingRef
+          underlying={underlying}
+          hlMark={hl.markPx}
+          now={now}
+        />
+      )}
 
       {arb && active && (
         <div className="fc-arb">
@@ -412,6 +470,75 @@ function ArbMetrics({
             ? `${fmtPx(hlMark)} ↔ ${fmtPx(cpMark)}`
             : "px n/a"}
         </span>
+      </div>
+    </div>
+  );
+}
+
+// Underlying futures reference card. Sits above the arb island for commodity
+// coins so the trader can see HL's perp premium / discount vs the actual CME /
+// ICE front-month contract — the second basis edge beyond cross-venue perp
+// basis. Loading and missing states render the card empty rather than hiding
+// it, so the layout doesn't jump when Yahoo finally answers.
+function UnderlyingRef({
+  underlying,
+  hlMark,
+  now,
+}: {
+  underlying: CommodityUnderlying | null;
+  hlMark: number | null;
+  now: number;
+}) {
+  if (!underlying) {
+    return (
+      <div className="fc-uref loading">
+        <span className="fc-uref-label">Underlying</span>
+        <span className="fc-uref-status">…</span>
+      </div>
+    );
+  }
+  // Basis% = (HL perp − underlying) / underlying. Positive ⇒ HL trades above
+  // the futures benchmark (perp premium). This is the convention that matches
+  // how traders read CME basis everywhere.
+  const basisPct =
+    hlMark != null && underlying.price > 0
+      ? ((hlMark - underlying.price) / underlying.price) * 100
+      : null;
+  // Yahoo's free feed is delayed ~15 min for most futures; show the lag so a
+  // trader knows the basis is approximate, not a live arb signal.
+  const ageMin =
+    underlying.asOfMs > 0
+      ? Math.max(0, Math.round((now - underlying.asOfMs) / 60_000))
+      : null;
+  return (
+    <div className="fc-uref">
+      <div className="fc-uref-head">
+        <span className="fc-uref-label">Underlying</span>
+        <span className="fc-uref-symbol">
+          {underlying.exchange && (
+            <span className="fc-uref-exch">{underlying.exchange}</span>
+          )}
+          {underlying.symbol}
+        </span>
+      </div>
+      <div className="fc-uref-body">
+        <span className="fc-uref-price">{fmtPx(underlying.price)}</span>
+        {basisPct == null ? (
+          <span className="fc-uref-basis dim">HL basis —</span>
+        ) : (
+          <span
+            className={`fc-uref-basis ${basisPct >= 0 ? "up" : "down"}`}
+            title="HL perp price minus underlying futures, as a percent of underlying"
+          >
+            HL basis {fmtBasisPct(basisPct)}
+          </span>
+        )}
+      </div>
+      <div className="fc-uref-foot">
+        <span className="fc-uref-contract">{underlying.contractName}</span>
+        {ageMin != null && (
+          <span className="fc-uref-age">{ageMin}m delayed</span>
+        )}
       </div>
     </div>
   );
