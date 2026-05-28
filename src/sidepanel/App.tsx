@@ -27,14 +27,21 @@ type TabId = "twaps" | "funding" | "liquidation" | "stops" | "nft";
 type TabDef = {
   id: TabId;
   label: string;
-  isAvailable: (ctx: { coin: string; hasPerp: boolean }) => boolean;
+  isAvailable: (ctx: {
+    coin: string;
+    hasPerp: boolean;
+    hasMainPerp: boolean;
+  }) => boolean;
 };
 
+// FR works for any HL perp (incl. sub-DEX commodities/stocks/FX), but
+// Liquidation/Stops rely on main-DEX-only data (Hyperdash bands), so those
+// tabs stay gated on the strict main-DEX flag.
 const TABS: TabDef[] = [
   { id: "twaps", label: "TWAPs", isAvailable: () => true },
   { id: "funding", label: "FR", isAvailable: (c) => c.hasPerp },
-  { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasPerp },
-  { id: "stops", label: "Stops", isAvailable: (c) => c.hasPerp },
+  { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasMainPerp },
+  { id: "stops", label: "Stops", isAvailable: (c) => c.hasMainPerp },
   { id: "nft", label: "NFT", isAvailable: (c) => c.coin === "HYPE" },
 ];
 
@@ -317,7 +324,13 @@ function TabBar({ activeTab, onChange, coin, coinIndex }: TabBarProps) {
   const hasPerp = coinIndex
     ? coinIndex.perpAssetIdByCoin[coin] !== undefined
     : true;
-  const visible = TABS.filter((t) => t.isAvailable({ coin, hasPerp }));
+  // Sub-DEX (xyz, flx, …) coins are namespaced like "xyz:BRENTOIL"; only
+  // bare names belong to the main DEX where Hyperdash-backed liq/stop bands
+  // exist.
+  const hasMainPerp = hasPerp && !coin.includes(":");
+  const visible = TABS.filter((t) =>
+    t.isAvailable({ coin, hasPerp, hasMainPerp }),
+  );
 
   useEffect(() => {
     if (!visible.some((t) => t.id === activeTab)) {

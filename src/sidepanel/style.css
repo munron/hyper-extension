@@ -1558,9 +1558,13 @@ h1 {
   background: var(--bg-hover);
 }
 
-/* --- 72h spread-history chart --- */
+/* --- 72h spread-history chart (nested inside the .fc-arb island) --- */
 .fc-chart {
-  margin: 2px 0 6px;
+  /* Visually separate the chart from the spread/legs summary above without
+     adding a heavy border; the island's gap already provides breathing room. */
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid var(--line);
 }
 .fc-chart-status {
   margin: 2px 0 6px;
@@ -1571,27 +1575,62 @@ h1 {
 }
 .fc-chart-legend {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  padding: 0 2px 2px;
-  font-size: 0.55rem;
-  color: var(--text-mute);
+  gap: 4px;
+  padding: 0 2px 4px;
 }
+/* Boxed toggle chip matching the FR chart's .fr-legend-item. */
 .fc-chart-key {
   display: inline-flex;
   align-items: center;
-  gap: 4px;
+  gap: 5px;
+  padding: 3px 7px;
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: 0.62rem;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease,
+    background 0.12s ease;
 }
+.fc-chart-key:hover {
+  border-color: rgba(255, 255, 255, 0.3);
+  background: var(--bg-hover);
+}
+.fc-chart-key.off {
+  opacity: 0.4;
+  color: var(--text-dim);
+  text-decoration: line-through;
+}
+/* Line-series swatch matches .fr-legend-swatch's "short stroke" look. */
 .fc-chart-swatch {
-  width: 9px;
-  height: 2px;
-  border-radius: 1px;
+  width: 12px;
+  height: 6px;
+  border-top: 2px solid var(--line);
+  background: none;
+  flex: none;
 }
 .fc-chart-key.hl .fc-chart-swatch {
-  background: var(--fr-ref);
+  border-top-color: var(--fr-ref);
 }
 .fc-chart-key.cp .fc-chart-swatch {
+  border-top-color: var(--warn);
+}
+/* Dashed stroke for the avg toggle — matches the in-chart dashed mean lines. */
+.fc-chart-key.avg .fc-chart-swatch {
+  border-top: 2px dashed var(--text-mute);
+}
+/* Filled block for the spread toggle — matches the shaded .fc-chart-band area. */
+.fc-chart-key.spread .fc-chart-swatch {
+  border-top: none;
+  height: 6px;
   background: var(--warn);
+  opacity: 0.45;
+  border-radius: 1px;
 }
 .fc-chart-span {
   margin-left: auto;
@@ -1629,6 +1668,29 @@ h1 {
 }
 .fc-chart-line.cp {
   stroke: var(--warn);
+}
+/* Hover dots — same family as the line they sit on, ringed with the page bg
+   so they read clearly when crossing the shaded spread band. */
+.fc-dot {
+  stroke: var(--bg);
+  stroke-width: 0.8;
+}
+.fc-dot.hl {
+  fill: var(--fr-ref);
+}
+.fc-dot.cp {
+  fill: var(--warn);
+}
+/* Tooltip swatch colors for the ARB chart — reuses the shared .fr-tooltip
+   layout, just supplies the per-row stroke color. */
+.fr-tooltip-key.fc-hl {
+  border-top-color: var(--fr-ref);
+}
+.fr-tooltip-key.fc-cp {
+  border-top-color: var(--warn);
+}
+.fr-tooltip-key.fc-spread {
+  border-top: 2px dashed var(--text-mute);
 }
 .fc-chart-avg {
   fill: none;

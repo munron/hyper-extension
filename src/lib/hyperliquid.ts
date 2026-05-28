@@ -101,8 +101,20 @@ export async function fetchSpotMeta(): Promise<SpotMeta> {
   return postInfo<SpotMeta>({ type: "spotMeta" });
 }
 
-export async function fetchMetaAndAssetCtxs(): Promise<[Meta, PerpAssetCtx[]]> {
-  return postInfo<[Meta, PerpAssetCtx[]]>({ type: "metaAndAssetCtxs" });
+export async function fetchMetaAndAssetCtxs(
+  dex?: string,
+): Promise<[Meta, PerpAssetCtx[]]> {
+  return postInfo<[Meta, PerpAssetCtx[]]>(
+    dex ? { type: "metaAndAssetCtxs", dex } : { type: "metaAndAssetCtxs" },
+  );
+}
+
+// Coins listed on builder sub-DEXs (commodities, stocks, FX, …) are namespaced
+// like "xyz:BRENTOIL" and their assetCtxs / meta only come back when the same
+// `dex` parameter is passed; main-DEX queries silently omit them.
+function dexOfCoin(coin: string): string | undefined {
+  const i = coin.indexOf(":");
+  return i > 0 ? coin.slice(0, i) : undefined;
 }
 
 // Live (current) funding rate for a coin, annualized to APR %. Unlike funding
@@ -110,7 +122,7 @@ export async function fetchMetaAndAssetCtxs(): Promise<[Meta, PerpAssetCtx[]]> {
 // metaAndAssetCtxs, so it moves continuously — suitable for a real-time "now"
 // readout. Returns null if the coin isn't found or has no funding.
 export async function fetchCurrentFundingApr(coin: string): Promise<number | null> {
-  const [meta, ctxs] = await fetchMetaAndAssetCtxs();
+  const [meta, ctxs] = await fetchMetaAndAssetCtxs(dexOfCoin(coin));
   const i = meta.universe.findIndex((u) => u.name === coin);
   if (i < 0) return null;
   const f = ctxs[i]?.funding;

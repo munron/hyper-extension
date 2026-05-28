@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchVenueFundings,
   fetchVenueFundingHistory,
@@ -264,16 +264,17 @@ export default function FundingComparePanel({ coin, refreshKey }: Props) {
               Short {shortName(arb.shortLeg.venue)} <b>{fmtApr(arb.shortLeg.aprPct)}</b>
             </span>
           </div>
-        </div>
-      )}
 
-      {active && (
-        <SpreadHistoryChart
-          cpName={active.venue}
-          history={history && history.venue === active.venue ? history : null}
-          loading={historyLoading}
-          now={now}
-        />
+          {/* The 72h history visualizes the same HL↔counterparty spread the
+              summary describes, so it belongs inside this island rather than
+              floating as a separate block. */}
+          <SpreadHistoryChart
+            cpName={active.venue}
+            history={history && history.venue === active.venue ? history : null}
+            loading={historyLoading}
+            now={now}
+          />
+        </div>
       )}
 
       <div className="fc-venues">
@@ -391,6 +392,24 @@ type ChartProps = {
 };
 
 function SpreadHistoryChart({ cpName, history, loading, now }: ChartProps) {
+  // Mirror of the FR chart's legend toggles. `hl` / `cp` hide a leg's line and
+  // its companion avg-line + right-edge pill (the avg of an invisible line is
+  // confusing). `avg` hides both dashed mean lines + pills. `spread` hides the
+  // shaded band between the two legs. Each is independent.
+  const [visibleSeries, setVisibleSeries] = useState({
+    hl: true,
+    cp: true,
+    avg: true,
+    spread: true,
+  });
+  const toggleSeries = (k: keyof typeof visibleSeries) =>
+    setVisibleSeries((s) => ({ ...s, [k]: !s[k] }));
+
+  // Cursor → snapped time on the chart. Continuous (ms) rather than a series
+  // index because the two legs sample at different cadences (HL hourly, CEX 8h).
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverT, setHoverT] = useState<number | null>(null);
+
   const windowStart = now - HISTORY_HOURS * 3_600_000;
   const hl = (history?.hl ?? []).filter((p) => p.t >= windowStart);
   const cp = (history?.cp ?? []).filter((p) => p.t >= windowStart);
@@ -474,21 +493,78 @@ function SpreadHistoryChart({ cpName, history, loading, now }: ChartProps) {
   const zeroY = yMin < 0 && yMax > 0 ? yFor(0) : null;
   const hourTicks = [72, 48, 24, 0];
 
+  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const vbX = ((e.clientX - rect.left) / rect.width) * CHART_W;
+    if (vbX < plotLeft - 1 || vbX > plotRight + 1) {
+      setHoverT(null);
+      return;
+    }
+    const t = windowStart + ((vbX - plotLeft) / plotW) * (now - windowStart);
+    setHoverT(Math.max(windowStart, Math.min(now, t)));
+  };
+  const handleLeave = () => setHoverT(null);
+
+  // Snap-free hover read: both legs are step-after, so the value at the
+  // hovered time is just the most recent sample ≤ t for each side.
+  const hover =
+    hoverT !== null
+      ? (() => {
+          const hx = xFor(hoverT);
+          const hlVal = visibleSeries.hl ? stepValAt(hl, hoverT) : null;
+          const cpVal = visibleSeries.cp ? stepValAt(cp, hoverT) : null;
+          const frac = (hx - plotLeft) / plotW;
+          const anchor = frac < 0.3 ? "left" : frac > 0.7 ? "right" : "center";
+          const leftPct = (hx / CHART_W) * 100;
+          return { t: hoverT, hx, hl: hlVal, cp: cpVal, leftPct, anchor };
+        })()
+      : null;
+
   return (
     <div className="fc-chart">
-      <div className="fc-chart-legend">
-        <span className="fc-chart-key hl">
-          <span className="fc-chart-swatch" aria-hidden="true" />
-          {shortName(HL_VENUE)}
-        </span>
-        <span className="fc-chart-key cp">
-          <span className="fc-chart-swatch" aria-hidden="true" />
-          {shortName(cpName)}
-          {cpMissing && " (no history)"}
-        </span>
-        <span className="fc-chart-span">{HISTORY_HOURS}h · APR · dashed = avg</span>
+      <div
+        className="fc-chart-legend"
+        role="group"
+        aria-label="Toggle chart series"
+      >
+        {(
+          [
+            { key: "hl", label: shortName(HL_VENUE), swatch: "hl" },
+            {
+              key: "cp",
+              label: shortName(cpName) + (cpMissing ? " (no history)" : ""),
+              swatch: "cp",
+            },
+            { key: "avg", label: "Avg", swatch: "avg" },
+            { key: "spread", label: "Spread", swatch: "spread" },
+          ] as const
+        ).map((item) => {
+          const on = visibleSeries[item.key];
+          return (
+            <button
+              key={item.key}
+              type="button"
+              className={`fc-chart-key ${item.swatch}${on ? "" : " off"}`}
+              onClick={() => toggleSeries(item.key)}
+              aria-pressed={on}
+            >
+              <span className="fc-chart-swatch" aria-hidden="true" />
+              {item.label}
+            </button>
+          );
+        })}
+        <span className="fc-chart-span">{HISTORY_HOURS}h · APR</span>
       </div>
+      <div
+        className="fr-chart-wrap"
+        onMouseMove={handleMove}
+        onMouseLeave={handleLeave}
+      >
       <svg
+        ref={svgRef}
         className="fc-chart-svg"
         viewBox={`0 0 ${CHART_W} ${CHART_H}`}
         preserveAspectRatio="xMidYMid meet"
@@ -530,8 +606,10 @@ function SpreadHistoryChart({ cpName, history, loading, now }: ChartProps) {
           />
         )}
 
-        {bandPath && <path d={bandPath} className="fc-chart-band" />}
-        {hlMean !== null && (
+        {visibleSeries.spread && bandPath && (
+          <path d={bandPath} className="fc-chart-band" />
+        )}
+        {visibleSeries.avg && visibleSeries.hl && hlMean !== null && (
           <line
             x1={plotLeft}
             x2={plotRight}
@@ -540,7 +618,7 @@ function SpreadHistoryChart({ cpName, history, loading, now }: ChartProps) {
             className="fc-chart-avg hl"
           />
         )}
-        {cpMean !== null && (
+        {visibleSeries.avg && visibleSeries.cp && cpMean !== null && (
           <line
             x1={plotLeft}
             x2={plotRight}
@@ -549,16 +627,24 @@ function SpreadHistoryChart({ cpName, history, loading, now }: ChartProps) {
             className="fc-chart-avg cp"
           />
         )}
-        {hl.length > 0 && <path d={stepPath(hl)} className="fc-chart-line hl" />}
-        {cp.length > 0 && <path d={stepPath(cp)} className="fc-chart-line cp" />}
+        {visibleSeries.hl && hl.length > 0 && (
+          <path d={stepPath(hl)} className="fc-chart-line hl" />
+        )}
+        {visibleSeries.cp && cp.length > 0 && (
+          <path d={stepPath(cp)} className="fc-chart-line cp" />
+        )}
 
         {(() => {
           // Right-edge pills that anchor each dashed avg line to a readable value.
           // When the two means are very close, nudge them apart so the labels
           // don't sit on top of each other.
           const pills: { kind: "hl" | "cp"; y: number; val: number }[] = [];
-          if (hlMean !== null) pills.push({ kind: "hl", y: yFor(hlMean), val: hlMean });
-          if (cpMean !== null) pills.push({ kind: "cp", y: yFor(cpMean), val: cpMean });
+          // Pills track their parent line — hidden if that leg is off or if
+          // averages are toggled off as a group.
+          if (visibleSeries.avg && visibleSeries.hl && hlMean !== null)
+            pills.push({ kind: "hl", y: yFor(hlMean), val: hlMean });
+          if (visibleSeries.avg && visibleSeries.cp && cpMean !== null)
+            pills.push({ kind: "cp", y: yFor(cpMean), val: cpMean });
           if (pills.length === 2 && Math.abs(pills[0].y - pills[1].y) < AVG_PILL_H + 1) {
             const mid = (pills[0].y + pills[1].y) / 2;
             const gap = (AVG_PILL_H + 1) / 2;
@@ -611,9 +697,88 @@ function SpreadHistoryChart({ cpName, history, loading, now }: ChartProps) {
             </text>
           );
         })}
+
+        {hover && (
+          <g pointerEvents="none">
+            <line
+              x1={hover.hx}
+              x2={hover.hx}
+              y1={CHART_PAD_T}
+              y2={plotBottom}
+              className="fr-crosshair"
+            />
+            {hover.hl !== null && (
+              <circle
+                cx={hover.hx}
+                cy={yFor(hover.hl)}
+                r={2.2}
+                className="fc-dot hl"
+              />
+            )}
+            {hover.cp !== null && (
+              <circle
+                cx={hover.hx}
+                cy={yFor(hover.cp)}
+                r={2.2}
+                className="fc-dot cp"
+              />
+            )}
+          </g>
+        )}
       </svg>
+
+      {hover && (hover.hl !== null || hover.cp !== null) && (
+        <div
+          className={`fr-tooltip ${hover.anchor}`}
+          style={{ left: `${hover.leftPct}%` }}
+        >
+          <div className="fr-tooltip-date">{fmtHoverDate(hover.t)}</div>
+          {visibleSeries.hl && hover.hl !== null && (
+            <div className="fr-tooltip-row">
+              <span className="fr-tooltip-key fc-hl" aria-hidden="true" />
+              <span className="fr-tooltip-name">{shortName(HL_VENUE)}</span>
+              <span
+                className={`fr-tooltip-val ${hover.hl >= 0 ? "up" : "down"}`}
+              >
+                {fmtApr(hover.hl)}
+              </span>
+            </div>
+          )}
+          {visibleSeries.cp && hover.cp !== null && (
+            <div className="fr-tooltip-row">
+              <span className="fr-tooltip-key fc-cp" aria-hidden="true" />
+              <span className="fr-tooltip-name">{shortName(cpName)}</span>
+              <span
+                className={`fr-tooltip-val ${hover.cp >= 0 ? "up" : "down"}`}
+              >
+                {fmtApr(hover.cp)}
+              </span>
+            </div>
+          )}
+          {hover.hl !== null && hover.cp !== null && (
+            <div className="fr-tooltip-row">
+              <span className="fr-tooltip-key fc-spread" aria-hidden="true" />
+              <span className="fr-tooltip-name">Δ</span>
+              <span
+                className={`fr-tooltip-val ${hover.cp - hover.hl >= 0 ? "up" : "down"}`}
+              >
+                {fmtApr(hover.cp - hover.hl)}
+              </span>
+            </div>
+          )}
+        </div>
+      )}
+      </div>
     </div>
   );
+}
+
+// Hover readout date — month/day + HH:MM at the cursor's snapped time.
+function fmtHoverDate(ms: number): string {
+  const d = new Date(ms);
+  const hh = d.getHours().toString().padStart(2, "0");
+  const mm = d.getMinutes().toString().padStart(2, "0");
+  return `${d.getMonth() + 1}/${d.getDate()} ${hh}:${mm}`;
 }
 
 // Diverging bar fill from the 0 center toward the venue's APR.

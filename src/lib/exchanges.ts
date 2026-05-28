@@ -10,6 +10,7 @@
 import {
   fetchPredictedFundings,
   fetchFundingHistoryRange,
+  fetchMetaAndAssetCtxs,
   type PredictedFundingEntry,
   type PredictedVenueFunding,
 } from "./hyperliquid";
@@ -55,8 +56,118 @@ const NOT_WIRED = new Set<string>([]);
 // Deep link to each venue's trading page for a given coin. Symbol conventions
 // differ per venue (USDT vs USD vs bare coin, dash vs none, case), so each is
 // spelled out. Returns null for venues we don't know how to link.
+// Symbol translation across venues. Crypto coins almost always share a
+// ticker, but commodities / FX / regional stocks diverge by venue convention.
+// Keys are the bare HL ticker (after stripping the "<dex>:" prefix). Only
+// add a row where the venue's symbol *differs* from HL's bare ticker —
+// anything that matches natively (AAPL, NVDA, BRENTOIL on Lighter, etc.)
+// needs no entry. Most fetchers append a suffix themselves (Binance ".USDT",
+// OKX "-USDT-SWAP", Grvt "_USDT_Perp", edgeX "USD", Extended "-USD"), so
+// values here are the venue's *base* symbol, not the full pair.
+//
+// Sources verified by enumerating each venue's instrument list (Binance
+// /fapi/v1/exchangeInfo, Bybit /v5/market/instruments-info, OKX
+// /public/instruments, Aster, Pacifica /api/v1/info, Extended
+// /api/v1/info/markets, edgeX getMetaData, Grvt /full/v1/instruments,
+// Variational /metadata/stats, Lighter /orderBooks).
+const VENUE_ALIASES: Record<string, Partial<Record<string, string>>> = {
+  // WTI crude — HL's futures ticker "CL" (displayName "WTIOIL"). Most venues
+  // also use "CL"; Lighter / Extended rename to "WTI".
+  CL: {
+    Lighter: "WTI",
+    Extended: "WTI",
+  },
+  // Brent crude — HL uses commodity name "BRENTOIL"; CEX + Grvt use the
+  // futures ticker "BZ". Lighter keeps "BRENTOIL". Other DEXs don't list it.
+  BRENTOIL: {
+    Binance: "BZ",
+    Aster: "BZ",
+    Bybit: "BZ",
+    OKX: "BZ",
+    Grvt: "BZ",
+  },
+  // Gold — HL uses "GOLD"; virtually everyone else uses the ISO bullion
+  // code "XAU". (edgeX has no spot gold — only XAUT/Tether Gold token.)
+  GOLD: {
+    Lighter: "XAU",
+    Binance: "XAU",
+    Aster: "XAU",
+    Bybit: "XAU",
+    OKX: "XAU",
+    Pacifica: "XAU",
+    Grvt: "XAU",
+    Variational: "XAU",
+    Extended: "XAU",
+  },
+  // Silver — same pattern as gold, with ISO code "XAG". edgeX is the odd
+  // one out (keeps "SILVER"), so no edgeX entry needed.
+  SILVER: {
+    Lighter: "XAG",
+    Binance: "XAG",
+    Aster: "XAG",
+    Bybit: "XAG",
+    OKX: "XAG",
+    Pacifica: "XAG",
+    Grvt: "XAG",
+    Variational: "XAG",
+    Extended: "XAG",
+  },
+  // Natural gas — OKX uses futures ticker "NG"; Extended uses "XNG". All
+  // other venues match HL's "NATGAS".
+  NATGAS: {
+    OKX: "NG",
+    Extended: "XNG",
+  },
+  // FX — HL stores the foreign currency; Lighter / Pacifica quote a pair.
+  // edgeX auto-appends "USD" via its lookup, so bare HL ticker already
+  // matches (e.g. "EUR" → "EURUSD"). Extended markets are dash-separated
+  // ("EUR-USD"), so the bare HL ticker also works there for EUR/GBP.
+  EUR: {
+    Lighter: "EURUSD",
+    Pacifica: "EURUSD",
+  },
+  GBP: {
+    Lighter: "GBPUSD",
+  },
+  JPY: {
+    Lighter: "USDJPY",
+    Pacifica: "USDJPY",
+    Extended: "USDJPY",
+  },
+  KRW: {
+    Lighter: "USDKRW",
+  },
+  // US stocks on Extended carry a "_24_5" suffix (24h × 5 days/wk schedule).
+  // Other venues use the bare ticker, matching HL natively.
+  AAPL: { Extended: "AAPL_24_5" },
+  AMZN: { Extended: "AMZN_24_5" },
+  CRCL: { Extended: "CRCL_24_5" },
+  HOOD: { Extended: "HOOD_24_5" },
+  META: { Extended: "META_24_5" },
+  MSFT: { Extended: "MSFT_24_5" },
+  MSTR: { Extended: "MSTR_24_5" },
+  NVDA: { Extended: "NVDA_24_5" },
+  ORCL: { Extended: "ORCL_24_5" },
+  PLTR: { Extended: "PLTR_24_5" },
+  TSLA: { Extended: "TSLA_24_5" },
+  // Regional stocks renamed on Lighter ("<NAME>USD" suffix for non-US).
+  HYUNDAI: { Lighter: "HYUNDAIUSD" },
+  SMSN: { Lighter: "SAMSUNGUSD" },
+  SKHX: { Lighter: "SKHYNIXUSD" },
+};
+
+// Strip HL's sub-DEX prefix and apply per-venue rename. HL itself keeps the
+// full prefixed name since its endpoints require it; everyone else sees the
+// translated bare symbol (or the original symbol when no alias is defined).
+export function venueSymbol(venue: string, coin: string): string {
+  if (venue === HL_VENUE) return coin;
+  const colon = coin.indexOf(":");
+  const base = colon >= 0 ? coin.slice(colon + 1) : coin;
+  return VENUE_ALIASES[base]?.[venue] ?? base;
+}
+
 export function venueTradeUrl(venue: string, coin: string): string | null {
-  const c = coin.toUpperCase();
+  const c = venueSymbol(venue, coin).toUpperCase();
   switch (venue) {
     case HL_VENUE:
       return `https://app.hyperliquid.xyz/trade/${c}`;
@@ -118,6 +229,37 @@ async function getJson(url: string): Promise<unknown> {
 // isn't tracking the CEX counterpart (e.g. HYPE) it returns null for BinPerp /
 // BybitPerp even though those venues do list the coin. So this is used directly
 // for HL, but only as a *fallback* for Binance/Bybit behind their own APIs below.
+
+// Direct HL funding read for coins absent from predictedFundings (sub-DEX
+// commodities/stocks/FX live in their own per-dex universes). HL settles
+// hourly, so the rate from assetCtxs is per-1h decimal; nextFundingTime
+// is the top of the next hour.
+async function fetchHyperliquidDirect(coin: string): Promise<VenueResult> {
+  const venue = HL_VENUE;
+  const kind: VenueKind = "DEX";
+  try {
+    const colon = coin.indexOf(":");
+    const dex = colon > 0 ? coin.slice(0, colon) : undefined;
+    const [meta, ctxs] = await fetchMetaAndAssetCtxs(dex);
+    const i = meta.universe.findIndex((u) => u.name === coin);
+    if (i < 0) return unavailable(venue, kind, "not listed");
+    const f = ctxs[i]?.funding;
+    if (f == null) return unavailable(venue, kind, "no data");
+    const intervalHours = 1;
+    const apr = toApr(parseFloat(f), intervalHours);
+    if (!Number.isFinite(apr)) return unavailable(venue, kind, "no data");
+    return {
+      venue,
+      kind,
+      aprPct: apr,
+      intervalHours,
+      nextFundingMs: nextTopOfHour(),
+      available: true,
+    };
+  } catch {
+    return unavailable(venue, kind, "n/a");
+  }
+}
 
 function fromPredicted(
   pairs: [string, PredictedVenueFunding | null][] | undefined,
@@ -561,21 +703,27 @@ export async function fetchVenueFundings(coin: string): Promise<VenueResult[]> {
   const [predicted, binance, bybit, okx, aster, lighter, pacifica, extended, edgex, grvt, variational] =
     await Promise.all([
       fetchPredictedFundings().catch(() => null as PredictedFundingEntry[] | null),
-      fetchBinance(coin),
-      fetchBybit(coin),
-      fetchOkx(coin),
-      fetchAster(coin),
-      fetchLighter(coin),
-      fetchPacifica(coin),
-      fetchExtended(coin),
-      fetchEdgex(coin),
-      fetchGrvt(coin),
-      fetchVariational(coin),
+      fetchBinance(venueSymbol("Binance", coin)),
+      fetchBybit(venueSymbol("Bybit", coin)),
+      fetchOkx(venueSymbol("OKX", coin)),
+      fetchAster(venueSymbol("Aster", coin)),
+      fetchLighter(venueSymbol("Lighter", coin)),
+      fetchPacifica(venueSymbol("Pacifica", coin)),
+      fetchExtended(venueSymbol("Extended", coin)),
+      fetchEdgex(venueSymbol("edgeX", coin)),
+      fetchGrvt(venueSymbol("Grvt", coin)),
+      fetchVariational(venueSymbol("Variational", coin)),
     ]);
 
   const pairs = predicted?.find(([c]) => c === coin)?.[1];
   const byName = new Map<string, VenueResult>();
-  byName.set(HL_VENUE, fromPredicted(pairs, "HlPerp", HL_VENUE, "DEX"));
+  // Sub-DEX coins (xyz:BRENTOIL, flx:…) are absent from predictedFundings, so
+  // pull HL's own funding directly from metaAndAssetCtxs when needed.
+  const hlFromPredicted = fromPredicted(pairs, "HlPerp", HL_VENUE, "DEX");
+  const hlResult = hlFromPredicted.available
+    ? hlFromPredicted
+    : await fetchHyperliquidDirect(coin);
+  byName.set(HL_VENUE, hlResult);
   byName.set(
     "Binance",
     preferAvailable(binance, fromPredicted(pairs, "BinPerp", "Binance", "CEX")),
@@ -778,37 +926,41 @@ export async function fetchVenueFundingHistory(
   sinceMs: number,
 ): Promise<FundingPoint[] | null> {
   try {
+    // Translate the symbol once at entry: HL stays prefixed (e.g. "xyz:CL")
+    // since its API requires it; other venues see their own bare symbol
+    // (e.g. Lighter "WTI") via the alias table.
+    const c = venueSymbol(venue, coin);
     let raw: RawPoint[];
     switch (venue) {
       case HL_VENUE:
-        raw = await histHyperliquid(coin, sinceMs);
+        raw = await histHyperliquid(c, sinceMs);
         break;
       case "Binance":
-        raw = await histBinanceLike("https://fapi.binance.com", coin, sinceMs);
+        raw = await histBinanceLike("https://fapi.binance.com", c, sinceMs);
         break;
       case "Aster":
-        raw = await histBinanceLike("https://fapi.asterdex.com", coin, sinceMs);
+        raw = await histBinanceLike("https://fapi.asterdex.com", c, sinceMs);
         break;
       case "Bybit":
-        raw = await histBybit(coin, sinceMs);
+        raw = await histBybit(c, sinceMs);
         break;
       case "OKX":
-        raw = await histOkx(coin);
+        raw = await histOkx(c);
         break;
       case "edgeX":
-        raw = await histEdgex(coin);
+        raw = await histEdgex(c);
         break;
       case "Grvt":
-        raw = await histGrvt(coin);
+        raw = await histGrvt(c);
         break;
       case "Pacifica":
-        raw = await histPacifica(coin);
+        raw = await histPacifica(c);
         break;
       case "Extended":
-        raw = await histExtended(coin, sinceMs);
+        raw = await histExtended(c, sinceMs);
         break;
       case "Lighter":
-        raw = await histLighter(coin, sinceMs);
+        raw = await histLighter(c, sinceMs);
         break;
       default:
         return null; // Variational: no public history endpoint
