@@ -1411,6 +1411,104 @@ h1 {
   padding: 1px 5px;
 }
 
+/* --- underlying futures reference (commodities only) ---
+   Compact card that anchors the perp basis vs the actual CME / ICE benchmark.
+   Sits just under the header, above the arb island. */
+.fc-uref {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 7px 9px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+}
+.fc-uref.loading {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+}
+.fc-uref-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.fc-uref-label {
+  font-size: 0.5rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.fc-uref-symbol {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 0.62rem;
+  color: var(--text-mute);
+}
+.fc-uref-exch {
+  font-size: 0.5rem;
+  letter-spacing: 0.06em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  color: var(--text-dim);
+}
+.fc-uref-body {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+.fc-uref-price {
+  font-family: var(--font-mono);
+  font-size: 1rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
+}
+.fc-uref-basis {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.fc-uref-basis.up {
+  color: var(--buy);
+}
+.fc-uref-basis.down {
+  color: var(--sell);
+}
+.fc-uref-basis.dim {
+  color: var(--text-dim);
+}
+.fc-uref-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 0.54rem;
+  color: var(--text-dim);
+}
+.fc-uref-contract {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.fc-uref-age {
+  flex: none;
+  font-family: var(--font-mono);
+  letter-spacing: 0.04em;
+}
+.fc-uref-status {
+  font-family: var(--font-mono);
+  font-size: 0.6rem;
+  color: var(--text-dim);
+}
+
 /* --- arb summary --- */
 .fc-arb {
   display: flex;
@@ -1440,6 +1538,40 @@ h1 {
   letter-spacing: 0.05em;
   text-transform: uppercase;
   color: var(--text-dim);
+}
+
+/* Selected pair badge — the headline of the arb island. Each leg sits in a
+   colored pill matching the chart legend (HL = fr-ref blue, CP = warn orange)
+   so the user can read off which two venues the trade legs and chart lines
+   correspond to without searching the page. */
+.fc-arb-pair {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: var(--text);
+}
+.fc-arb-pair-leg {
+  padding: 2px 7px;
+  border-radius: var(--r-xs);
+  border: 1px solid currentColor;
+  background: color-mix(in srgb, currentColor 12%, transparent);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  line-height: 1.1;
+}
+.fc-arb-pair-leg.hl {
+  color: var(--fr-ref);
+}
+.fc-arb-pair-leg.cp {
+  color: var(--warn);
+}
+.fc-arb-pair-sep {
+  color: var(--text-mute);
+  font-size: 0.82rem;
+  font-weight: 500;
 }
 
 .fc-best {
@@ -1527,6 +1659,11 @@ h1 {
   font-variant-numeric: tabular-nums;
   color: var(--text-mute);
 }
+.fc-leg {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 5px;
+}
 .fc-leg b {
   font-weight: 700;
 }
@@ -1535,6 +1672,60 @@ h1 {
 }
 .fc-leg.short b {
   color: var(--sell);
+}
+.fc-leg-side {
+  color: var(--text);
+}
+.fc-leg-px {
+  color: var(--text-dim);
+  font-size: 0.56rem;
+}
+
+/* Two-up "FR spread / Basis" readout under the long/short legs. Splits the
+   trade's edge into its two components so a trader can see at a glance whether
+   it's basis-heavy (capturable now) or carry-heavy (only realized over time). */
+.fc-arb-metrics {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+  margin-top: 2px;
+}
+.fc-arb-metric {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 5px 7px;
+  background: var(--bg-tile-strong);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+}
+.fc-arb-metric-label {
+  font-size: 0.5rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+.fc-arb-metric-val {
+  font-family: var(--font-mono);
+  font-size: 0.86rem;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.1;
+}
+.fc-arb-metric-val.up {
+  color: var(--buy);
+}
+.fc-arb-metric-val.down {
+  color: var(--sell);
+}
+.fc-arb-metric-val.dim {
+  color: var(--text-dim);
+}
+.fc-arb-metric-sub {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
 }
 .fc-flip {
   display: inline-flex;
@@ -1923,6 +2114,51 @@ button.fc-venue:hover {
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-size: 0.48rem;
+}
+
+/* mark price + basis-vs-HL column. Sits between the APR readout and the
+   countdown so a trader can scan price-gap and FR-gap side by side. */
+.fc-venue-px {
+  flex: none;
+  width: 60px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  line-height: 1.15;
+}
+.fc-venue-mark {
+  font-family: var(--font-mono);
+  font-size: 0.64rem;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.fc-venue-basis {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+.fc-venue-basis.up {
+  color: var(--buy);
+}
+.fc-venue-basis.down {
+  color: var(--sell);
+}
+.fc-venue-basis.anchor {
+  color: var(--text-dim);
+  opacity: 0.7;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.48rem;
+}
+.fc-venue-basis.dim {
+  color: var(--text-dim);
+  opacity: 0.6;
+}
+
+/* Shrink the APR diverging-bar track so price column fits without crowding. */
+.fc-venue-track {
+  min-width: 28px;
 }
 
 /* next-funding countdown column */
@@ -2797,4 +3033,174 @@ button.fc-venue:hover {
 }
 .stocks-link:hover {
   text-decoration: underline;
+}
+
+/* ===== Events tab ===== */
+
+.ev {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.ev-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ev-head-label {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+.ev-head-scope {
+  font-family: var(--font-mono);
+  font-size: 0.52rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+  border: 1px dashed var(--line-strong);
+  border-radius: var(--r-xs);
+  padding: 1px 5px;
+}
+
+.ev-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+/* A row is a left "time" column (countdown + local + ET) and a right body
+   block (title + impact + meta). Anything imminent (<24h) gets a subtle
+   highlight so the user notices it at a glance. */
+.ev-row {
+  display: grid;
+  grid-template-columns: 92px 1fr;
+  gap: 8px;
+  padding: 7px 9px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-xs);
+}
+.ev-row.imminent {
+  border-color: var(--fr-ref);
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.18);
+}
+.ev-row.past {
+  opacity: 0.5;
+}
+
+.ev-row-time {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 1px;
+  border-right: 1px solid var(--line);
+  padding-right: 6px;
+}
+.ev-countdown {
+  font-family: var(--font-mono);
+  font-size: 0.66rem;
+  font-weight: 700;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+}
+.ev-row.imminent .ev-countdown {
+  color: var(--fr-ref);
+}
+.ev-when {
+  font-family: var(--font-mono);
+  font-size: 0.54rem;
+  color: var(--text-mute);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.ev-when-et {
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+}
+
+.ev-row-body {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+.ev-row-title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.68rem;
+  font-weight: 600;
+  color: var(--text);
+  line-height: 1.2;
+}
+.ev-row-title-link {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 1px dotted transparent;
+}
+.ev-row-title-link:hover {
+  border-bottom-color: var(--text-mute);
+}
+.ev-impact {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.46rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  border: 1px solid;
+}
+.ev-impact-high {
+  color: var(--sell);
+  border-color: rgba(244, 114, 114, 0.45);
+  background: rgba(244, 114, 114, 0.08);
+}
+.ev-impact-medium {
+  color: var(--warn);
+  border-color: var(--warn-soft);
+}
+.ev-impact-low {
+  color: var(--text-dim);
+  border-color: var(--line);
+}
+
+.ev-row-meta {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: 0.56rem;
+  color: var(--text-dim);
+}
+.ev-source {
+  flex: none;
+  font-family: var(--font-mono);
+  font-size: 0.5rem;
+  letter-spacing: 0.04em;
+  padding: 1px 4px;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  color: var(--text-mute);
+}
+.ev-desc {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.ev-foot {
+  font-size: 0.56rem;
+  line-height: 1.4;
+  color: var(--text-dim);
+  padding: 0 2px;
 }

@@ -18,6 +18,7 @@
     "https://api.pacifica.fi/*",
     "https://api.starknet.extended.exchange/*",
     "https://pro.edgex.exchange/*",
+    "https://edgex-prod-v2.edgex.exchange/*",
     "https://market-data.grvt.io/*",
     "https://omni-client-api.prod.ap-northeast-1.variational.io/*",
     "https://query1.finance.yahoo.com/*",

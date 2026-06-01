@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Hypurr — the trader's side panel for Hyperliquid</title>
+<meta name="description" content="A Chrome side panel for Hyperliquid: TWAP order flow, funding-rate history, cross-venue basis, liquidation & stop maps, news, and HYPE protocol stats — all for the coin you're viewing." />
+<meta property="og:title" content="Hypurr — the trader's side panel for Hyperliquid" />
+<meta property="og:description" content="TWAP buy pressure, funding history, cross-venue basis, liquidation & stop maps, news — live, for the coin you're on." />
+<meta property="og:type" content="website" />
+<link rel="icon" type="image/png" href="icon128.png" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;700;800&display=swap" rel="stylesheet" />
+<style>
+:root{
+  --bg:#061515;
+  --bg2:#04100f;
+  --bg-elevated:rgba(255,255,255,0.022);
+  --bg-tile:rgba(255,255,255,0.028);
+  --bg-tile-strong:rgba(255,255,255,0.04);
+  --bg-hover:rgba(80,210,193,0.06);
+  --bg-soft-mint:rgba(80,210,193,0.08);
+  --mint:#3ec1ad;
+  --mint-bright:#50d2c1;
+  --mint-dim:rgba(80,210,193,0.42);
+  --line:rgba(255,255,255,0.08);
+  --line-strong:rgba(255,255,255,0.13);
+  --line-mint:rgba(80,210,193,0.28);
+  --line-mint-strong:rgba(80,210,193,0.5);
+  --text:rgba(255,255,255,0.94);
+  --text-dim:rgba(255,255,255,0.36);
+  --text-mute:rgba(255,255,255,0.55);
+  --buy:#50d2c1;
+  --sell:#ff6566;
+  --warn:#f5b85c;
+  --mono:ui-monospace,"JetBrains Mono",SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --r:14px;
+  --r-sm:9px;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  background:var(--bg);
+  color:var(--text);
+  font-family:var(--sans);
+  -webkit-font-smoothing:antialiased;
+  overflow-x:hidden;
+  line-height:1.5;
+}
+a{color:inherit;text-decoration:none}
+
+/* ---------- ambient background ---------- */
+.bg-fx{position:fixed;inset:0;z-index:-2;overflow:hidden;pointer-events:none}
+.bg-fx::before{
+  content:"";position:absolute;inset:0;
+  background:
+    radial-gradient(900px 600px at 78% -5%, rgba(80,210,193,0.16), transparent 60%),
+    radial-gradient(700px 700px at 5% 12%, rgba(62,193,173,0.10), transparent 55%),
+    radial-gradient(800px 800px at 50% 110%, rgba(80,210,193,0.10), transparent 60%);
+}
+.grid-overlay{
+  position:fixed;inset:0;z-index:-1;pointer-events:none;opacity:0.5;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.025) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(255,255,255,0.025) 1px,transparent 1px);
+  background-size:46px 46px;
+  mask-image:radial-gradient(circle at 50% 30%, #000 0%, transparent 75%);
+}
+.orb{position:fixed;border-radius:50%;filter:blur(80px);z-index:-1;opacity:.45;pointer-events:none}
+.orb.a{width:380px;height:380px;background:rgba(80,210,193,.25);top:-80px;right:-60px;animation:float1 16s ease-in-out infinite}
+.orb.b{width:300px;height:300px;background:rgba(62,193,173,.18);top:60vh;left:-80px;animation:float2 20s ease-in-out infinite}
+@keyframes float1{50%{transform:translate(-40px,40px) scale(1.1)}}
+@keyframes float2{50%{transform:translate(50px,-30px) scale(1.05)}}
+
+.wrap{max-width:1160px;margin:0 auto;padding:0 24px}
+
+/* ---------- nav ---------- */
+nav{
+  position:sticky;top:0;z-index:50;
+  backdrop-filter:blur(14px);
+  background:linear-gradient(180deg,rgba(6,21,21,.85),rgba(6,21,21,.4));
+  border-bottom:1px solid var(--line);
+}
+.nav-in{display:flex;align-items:center;justify-content:space-between;height:62px}
+.brand{display:flex;align-items:center;gap:11px;font-weight:800;font-size:1.05rem;letter-spacing:-.02em}
+.brand img{width:30px;height:30px;border-radius:8px;box-shadow:0 0 18px rgba(80,210,193,.4)}
+.brand span b{color:var(--mint-bright)}
+.nav-links{display:flex;align-items:center;gap:28px}
+.nav-links a{color:var(--text-mute);font-size:.9rem;font-weight:500;transition:color .15s}
+.nav-links a:hover{color:var(--text)}
+.nav-cta{
+  background:var(--mint-bright);color:#03201c;font-weight:800;font-size:.85rem;
+  padding:9px 16px;border-radius:999px;box-shadow:0 2px 14px rgba(80,210,193,.35);
+  transition:transform .15s,box-shadow .15s,filter .15s;
+}
+.nav-cta:hover{transform:translateY(-1px);filter:brightness(1.06);box-shadow:0 6px 22px rgba(80,210,193,.5)}
+@media(max-width:760px){.nav-links a:not(.nav-cta){display:none}}
+
+/* ---------- hero ---------- */
+.hero{padding:84px 0 60px;position:relative}
+.hero-grid{display:grid;grid-template-columns:1.05fr .95fr;gap:50px;align-items:center}
+@media(max-width:900px){.hero-grid{grid-template-columns:1fr;gap:46px}}
+.pill{
+  display:inline-flex;align-items:center;gap:8px;
+  padding:6px 13px;border-radius:999px;
+  background:var(--bg-soft-mint);border:1px solid var(--line-mint-strong);
+  color:var(--mint-bright);font-size:.76rem;font-weight:700;letter-spacing:.04em;
+  font-family:var(--mono);
+}
+.pill .dot{width:7px;height:7px;border-radius:50%;background:var(--mint-bright);box-shadow:0 0 8px var(--mint-bright);animation:pulse 2s infinite}
+@keyframes pulse{50%{opacity:.4}}
+h1{
+  font-size:clamp(2.6rem,5.6vw,4.3rem);font-weight:900;letter-spacing:-.035em;
+  line-height:1.02;margin:22px 0 0;
+}
+h1 .grad{
+  background:linear-gradient(110deg,var(--mint-bright),#9ef5e4 50%,var(--mint));
+  -webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;
+}
+.sub{margin-top:22px;font-size:1.14rem;color:var(--text-mute);max-width:520px;line-height:1.6}
+.sub b{color:var(--text);font-weight:600}
+.cta-row{display:flex;gap:14px;margin-top:34px;flex-wrap:wrap;align-items:center}
+.btn-primary{
+  display:inline-flex;align-items:center;gap:10px;
+  background:var(--mint-bright);color:#03201c;font-weight:800;font-size:1rem;
+  padding:14px 24px;border-radius:12px;box-shadow:0 4px 22px rgba(80,210,193,.4);
+  transition:transform .15s,filter .15s,box-shadow .15s;
+}
+.btn-primary:hover{transform:translateY(-2px);filter:brightness(1.06);box-shadow:0 10px 32px rgba(80,210,193,.55)}
+.btn-ghost{
+  display:inline-flex;align-items:center;gap:9px;
+  border:1px solid var(--line-strong);color:var(--text);font-weight:600;font-size:1rem;
+  padding:14px 22px;border-radius:12px;transition:border-color .15s,background .15s;
+}
+.btn-ghost:hover{border-color:var(--line-mint-strong);background:var(--bg-hover)}
+.trust{margin-top:26px;display:flex;gap:22px;flex-wrap:wrap;color:var(--text-dim);font-size:.82rem;font-family:var(--mono)}
+.trust b{color:var(--mint-bright);font-weight:700}
+
+/* ---------- side panel mock (the star) ---------- */
+.panel-stage{position:relative;display:flex;justify-content:center;perspective:1600px}
+.glow-ring{position:absolute;inset:-40px;background:radial-gradient(circle,rgba(80,210,193,.22),transparent 65%);filter:blur(20px);z-index:0}
+.panel{
+  position:relative;z-index:1;width:330px;
+  background:linear-gradient(180deg,#081c1b,#061514);
+  border:1px solid var(--line-strong);border-radius:20px;
+  box-shadow:0 40px 90px -30px rgba(0,0,0,.8),0 0 0 1px rgba(80,210,193,.06),0 0 60px -20px rgba(80,210,193,.3);
+  padding:14px;
+  transform:rotateY(-13deg) rotateX(4deg);
+  transition:transform .5s cubic-bezier(.2,.8,.2,1);
+  animation:floaty 7s ease-in-out infinite;
+}
+.panel:hover{transform:rotateY(0deg) rotateX(0deg) scale(1.02)}
+@keyframes floaty{50%{transform:rotateY(-13deg) rotateX(4deg) translateY(-12px)}}
+.panel:hover{animation-play-state:paused}
+
+/* generic panel chrome (mirrors the real extension) */
+.p-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.p-title{display:flex;align-items:center;gap:9px}
+.p-title img{width:26px;height:26px;border-radius:50%;background:var(--bg-tile);padding:2px}
+.p-title .nm{font-weight:700;font-size:1.05rem}
+.p-title .nm a{transition:color .15s}
+.invite{
+  display:inline-flex;align-items:center;gap:7px;background:var(--mint-bright);color:#03201c;
+  padding:6px 11px 6px 7px;border-radius:999px;font-weight:700;font-size:.74rem;
+  box-shadow:0 2px 10px rgba(95,227,194,.28);white-space:nowrap;
+}
+.invite img{width:18px;height:18px;border-radius:50%;background:#03201c}
+.invite b{font-weight:800}
+.tabs{display:flex;gap:3px;overflow-x:auto;padding-bottom:9px;margin-bottom:11px;border-bottom:1px solid var(--line);scrollbar-width:none}
+.tabs::-webkit-scrollbar{display:none}
+.tab{
+  flex:none;font-size:.66rem;font-weight:700;letter-spacing:.04em;color:var(--text-mute);
+  padding:5px 9px;border-radius:7px;font-family:var(--mono);white-space:nowrap;transition:all .15s;cursor:pointer;
+}
+.tab.on{background:var(--mint);color:#021816}
+.tab:hover:not(.on){color:var(--text);background:var(--bg-hover)}
+
+.card{background:var(--bg-elevated);border:1px solid var(--line);border-radius:12px;padding:13px;margin-bottom:10px}
+.lbl{font-size:.56rem;letter-spacing:.13em;text-transform:uppercase;color:var(--text-mute);font-weight:700}
+.lbl.mint{color:var(--mint-bright)}
+
+/* buy pressure card */
+.bp-title{text-align:center;font-weight:700;font-size:.92rem;margin-bottom:9px}
+.bp-row{display:flex;justify-content:space-between;align-items:baseline;padding:3px 0;font-size:.9rem}
+.bp-row .k{color:var(--text-mute)}
+.bp-row .v{font-family:var(--mono);font-weight:800}
+.bp-row .v.pos{color:var(--buy)}
+
+/* split totals */
+.totals{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.total{display:flex;flex-direction:column;gap:4px;padding:9px 11px;border-radius:9px;background:var(--bg-tile);border:1px solid var(--line)}
+.total .tag{font-size:.62rem;font-weight:800;letter-spacing:.02em}
+.total.buy .tag{color:var(--buy)}
+.total.sell .tag{color:var(--sell)}
+.total .val{font-family:var(--mono);font-weight:800;font-size:.92rem}
+.total .pct{font-family:var(--mono);font-size:.62rem;color:var(--text-dim)}
+.splitbar{display:flex;height:6px;border-radius:4px;overflow:hidden;margin-bottom:11px}
+.splitbar .b{background:var(--buy)}
+.splitbar .s{background:var(--sell)}
+
+/* twap rows */
+.trow{display:flex;align-items:center;gap:7px;padding:6px 2px;border-top:1px solid var(--line);font-size:.72rem}
+.trow:first-of-type{border-top:none}
+.trow .side{font-size:.8rem}
+.trow.buy .side{color:var(--buy)}
+.trow.sell .side{color:var(--sell)}
+.mtag{font-size:.54rem;font-weight:700;padding:2px 5px;border-radius:5px;background:var(--bg-tile-strong);color:var(--text-mute);font-family:var(--mono)}
+.trow .usd{font-family:var(--mono);font-weight:700;margin-left:auto}
+.trow .eta{font-family:var(--mono);color:var(--text-dim);font-size:.64rem;width:34px;text-align:right}
+
+/* chart svg */
+.chart{width:100%;height:auto;display:block}
+.gridln{stroke:var(--line);stroke-width:.5;stroke-dasharray:2 3}
+.axis{fill:var(--text-dim);font-family:var(--mono);font-size:7px}
+
+/* news rows */
+.nrow{display:flex;gap:8px;padding:8px 2px;border-top:1px solid var(--line)}
+.nrow:first-of-type{border-top:none}
+.nrank{flex:none;width:17px;height:17px;border-radius:50%;background:var(--mint);color:#021816;font-size:.58rem;font-weight:800;display:flex;align-items:center;justify-content:center;font-family:var(--mono);margin-top:1px}
+.nbody{min-width:0}
+.ntitle{font-size:.74rem;font-weight:500;line-height:1.3}
+.nmeta{display:flex;gap:5px;font-size:.58rem;color:var(--text-dim);margin-top:2px}
+.nmeta .src{color:var(--text-mute);font-weight:600}
+
+.fade-line{display:flex;justify-content:space-between;font-size:.6rem;color:var(--text-dim);font-family:var(--mono);margin-top:2px}
+
+/* ---------- section scaffolding ---------- */
+section{padding:78px 0;position:relative}
+.eyebrow{font-family:var(--mono);font-size:.78rem;font-weight:700;letter-spacing:.14em;text-transform:uppercase;color:var(--mint-bright);text-align:center}
+.h2{font-size:clamp(1.9rem,3.6vw,2.7rem);font-weight:900;letter-spacing:-.03em;text-align:center;margin-top:12px}
+.lead{text-align:center;color:var(--text-mute);max-width:600px;margin:16px auto 0;font-size:1.05rem}
+
+/* feature grid */
+.fgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-top:48px}
+@media(max-width:900px){.fgrid{grid-template-columns:repeat(2,1fr)}}
+@media(max-width:600px){.fgrid{grid-template-columns:1fr}}
+.fcard{
+  background:linear-gradient(180deg,var(--bg-tile),transparent);
+  border:1px solid var(--line);border-radius:var(--r);padding:22px;
+  transition:transform .2s,border-color .2s,background .2s;position:relative;overflow:hidden;
+}
+.fcard:hover{transform:translateY(-4px);border-color:var(--line-mint-strong);background:var(--bg-hover)}
+.fcard .ic{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:1.2rem;background:var(--bg-soft-mint);border:1px solid var(--line-mint);margin-bottom:14px}
+.fcard h3{font-size:1.08rem;font-weight:800;letter-spacing:-.01em}
+.fcard .tagpill{font-family:var(--mono);font-size:.56rem;color:var(--mint-bright);border:1px solid var(--line-mint);padding:2px 7px;border-radius:999px;position:absolute;top:18px;right:18px;font-weight:700}
+.fcard p{color:var(--text-mute);font-size:.9rem;margin-top:8px;line-height:1.55}
+
+/* deep-dive alternating rows */
+.dd{display:grid;grid-template-columns:1fr 1fr;gap:54px;align-items:center;margin-top:64px}
+.dd.rev{direction:rtl}.dd.rev>*{direction:ltr}
+@media(max-width:880px){.dd{grid-template-columns:1fr;gap:34px}.dd.rev{direction:ltr}}
+.dd-copy .kicker{font-family:var(--mono);font-size:.74rem;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--mint-bright)}
+.dd-copy h3{font-size:1.7rem;font-weight:850;letter-spacing:-.02em;margin-top:10px}
+.dd-copy p{color:var(--text-mute);font-size:1rem;margin-top:14px;line-height:1.6}
+.dd-copy ul{list-style:none;margin-top:18px;display:flex;flex-direction:column;gap:10px}
+.dd-copy li{display:flex;gap:10px;align-items:flex-start;font-size:.94rem;color:var(--text)}
+.dd-copy li .ck{color:var(--mint-bright);font-weight:800;flex:none}
+.mockwrap{display:flex;justify-content:center}
+.mock{
+  width:320px;background:linear-gradient(180deg,#081c1b,#061514);
+  border:1px solid var(--line-strong);border-radius:18px;padding:14px;
+  box-shadow:0 30px 70px -30px rgba(0,0,0,.7),0 0 50px -22px rgba(80,210,193,.25);
+}
+
+/* stat band */
+.statband{display:grid;grid-template-columns:repeat(4,1fr);gap:18px;margin-top:50px}
+@media(max-width:760px){.statband{grid-template-columns:repeat(2,1fr)}}
+.stat{text-align:center;padding:24px 12px;background:var(--bg-tile);border:1px solid var(--line);border-radius:var(--r)}
+.stat .n{font-family:var(--mono);font-size:2.1rem;font-weight:800;color:var(--mint-bright);letter-spacing:-.02em}
+.stat .c{color:var(--text-mute);font-size:.82rem;margin-top:6px}
+
+/* venues marquee */
+.marquee{margin-top:40px;overflow:hidden;mask-image:linear-gradient(90deg,transparent,#000 12%,#000 88%,transparent)}
+.marquee-track{display:flex;gap:14px;width:max-content;animation:scroll 26s linear infinite}
+.chip{font-family:var(--mono);font-size:.82rem;font-weight:600;color:var(--text-mute);border:1px solid var(--line);background:var(--bg-tile);padding:9px 16px;border-radius:999px;white-space:nowrap}
+.chip b{color:var(--mint-bright)}
+@keyframes scroll{to{transform:translateX(-50%)}}
+
+/* install steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:18px;margin-top:46px}
+@media(max-width:760px){.steps{grid-template-columns:1fr}}
+.step{background:var(--bg-tile);border:1px solid var(--line);border-radius:var(--r);padding:24px;position:relative}
+.step .num{font-family:var(--mono);font-size:.8rem;font-weight:800;color:#03201c;background:var(--mint-bright);width:26px;height:26px;border-radius:8px;display:flex;align-items:center;justify-content:center}
+.step h4{margin-top:14px;font-size:1.05rem;font-weight:800}
+.step p{color:var(--text-mute);font-size:.88rem;margin-top:7px;line-height:1.55}
+.step code{font-family:var(--mono);font-size:.8rem;background:var(--bg-tile-strong);border:1px solid var(--line);padding:2px 6px;border-radius:5px;color:var(--mint-bright)}
+
+/* final cta */
+.finalcta{
+  text-align:center;border:1px solid var(--line-mint-strong);border-radius:24px;
+  padding:60px 30px;margin:30px 0 0;
+  background:radial-gradient(700px 300px at 50% -20%,rgba(80,210,193,.16),transparent 70%),var(--bg-elevated);
+}
+
+footer{border-top:1px solid var(--line);padding:40px 0;margin-top:80px;color:var(--text-dim);font-size:.84rem}
+.foot-in{display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:16px}
+.foot-in a{color:var(--text-mute)}
+.foot-in a:hover{color:var(--mint-bright)}
+.disclaimer{margin-top:18px;font-size:.72rem;color:var(--text-dim);max-width:680px;line-height:1.5}
+
+/* reveal animation */
+.reveal{opacity:0;transform:translateY(26px);transition:opacity .7s cubic-bezier(.2,.8,.2,1),transform .7s cubic-bezier(.2,.8,.2,1)}
+.reveal.in{opacity:1;transform:none}
+@media(prefers-reduced-motion:reduce){.reveal{opacity:1;transform:none;transition:none}.panel,.orb{animation:none}}
+</style>
+</head>
+<body>
+<div class="bg-fx"></div>
+<div class="grid-overlay"></div>
+<div class="orb a"></div>
+<div class="orb b"></div>
+
+<!-- ============ NAV ============ -->
+<nav>
+  <div class="wrap nav-in">
+    <a class="brand" href="#top"><img src="icon128.png" alt="" /><span>Hypurr<b>.</b></span></a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#deep">How it works</a>
+      <a href="#install">Install</a>
+      <a class="nav-cta" href="#install">Add to Chrome</a>
+    </div>
+  </div>
+</nav>
+
+<!-- ============ HERO ============ -->
+<header class="hero" id="top">
+  <div class="wrap hero-grid">
+    <div>
+      <span class="pill"><span class="dot"></span>LIVE · for the coin you're viewing</span>
+      <h1>Trade Hyperliquid<br>with a <span class="grad">sixth sense.</span></h1>
+      <p class="sub">A Chrome <b>side panel</b> that rides along on app.hyperliquid.xyz — surfacing <b>TWAP order flow</b>, <b>funding history</b>, <b>cross-venue basis</b>, <b>liquidation &amp; stop maps</b>, and <b>live news</b> for whatever coin you're looking at. No tab-switching. No spreadsheets.</p>
+      <div class="cta-row">
+        <a class="btn-primary" href="#install">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="#03201c" stroke-width="2"/><path d="M12 8h8M12 12l4 7M12 12l-4 7" stroke="#03201c" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" fill="#03201c"/></svg>
+          Add to Chrome — free
+        </a>
+        <a class="btn-ghost" href="#deep">See it in action ↓</a>
+      </div>
+      <div class="trust">
+        <span><b>11</b> tools, one panel</span>
+        <span><b>10+</b> venues compared</span>
+        <span><b>−4%</b> trading fees built in</span>
+      </div>
+    </div>
+
+    <!-- HERO PANEL MOCK: TWAPs -->
+    <div class="panel-stage">
+      <div class="glow-ring"></div>
+      <div class="panel">
+        <div class="p-head">
+          <div class="p-title"><img src="data:image/svg+xml;utf8,&lt;svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 144 144'&gt;&lt;path d='M144 71.7C144 119.3 114.9 134.6 99.5 121c-12.6-11.1-16.4-34.5-35.4-36.9C40 81 38 113.1 22 113.1 3.6 113.1 0 86.2 0 72.4 0 58.3 4 39.1 19.7 39.1c18.4 0 19.5 27.5 42.4 26 22.9-1.6 23.3-30.2 38.1-42.5C113.2 12.1 144 23.5 144 71.7z' fill='%2397FCE4'/&gt;&lt;/svg&gt;" alt="" /><span class="nm">HYPE</span></div>
+          <span class="invite"><img src="icon128.png" alt="" />Trade <b>· Save 4%</b></span>
+        </div>
+        <div class="tabs">
+          <span class="tab on">TWAPs</span><span class="tab">FR</span><span class="tab">Liquidation</span><span class="tab">Stops</span><span class="tab">Arb</span><span class="tab">News</span>
+        </div>
+        <div class="card">
+          <div class="bp-title">TWAPs HYPE Buy Pressure</div>
+          <div class="bp-row"><span class="k">Next 1h:</span><span class="v pos">+968,272$</span></div>
+          <div class="bp-row"><span class="k">Next 24h:</span><span class="v pos">+8,218,216$</span></div>
+        </div>
+        <div class="totals">
+          <div class="total buy"><span class="tag">▲ BUY</span><span class="val">$12.4M</span><span class="pct">71%</span></div>
+          <div class="total sell"><span class="tag">▼ SELL</span><span class="val">$5.1M</span><span class="pct">29%</span></div>
+        </div>
+        <div class="splitbar"><div class="b" style="width:71%"></div><div class="s" style="width:29%"></div></div>
+        <div class="trow buy"><span class="side">▲</span><span class="mtag">PERP</span><span class="usd">$2.10M</span><span class="eta">3h12m</span></div>
+        <div class="trow buy"><span class="side">▲</span><span class="mtag">SPOT</span><span class="usd">$880K</span><span class="eta">42m</span></div>
+        <div class="trow sell"><span class="side">▼</span><span class="mtag">PERP</span><span class="usd">$640K</span><span class="eta">1h05m</span></div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- ============ VENUES MARQUEE ============ -->
+<div class="wrap reveal">
+  <p class="eyebrow">Funding &amp; basis, compared across</p>
+  <div class="marquee">
+    <div class="marquee-track">
+      <span class="chip"><b>Hyperliquid</b></span><span class="chip">Binance</span><span class="chip">Bybit</span><span class="chip">OKX</span><span class="chip">Aster</span><span class="chip">Lighter</span><span class="chip">Pacifica</span><span class="chip">Extended</span><span class="chip">edgeX</span><span class="chip">Grvt</span><span class="chip">Variational</span>
+      <span class="chip"><b>Hyperliquid</b></span><span class="chip">Binance</span><span class="chip">Bybit</span><span class="chip">OKX</span><span class="chip">Aster</span><span class="chip">Lighter</span><span class="chip">Pacifica</span><span class="chip">Extended</span><span class="chip">edgeX</span><span class="chip">Grvt</span><span class="chip">Variational</span>
+    </div>
+  </div>
+</div>
+
+<!-- ============ FEATURES ============ -->
+<section id="features">
+  <div class="wrap">
+    <p class="eyebrow reveal">Everything, where you trade</p>
+    <h2 class="h2 reveal">One panel. Eleven edges.</h2>
+    <p class="lead reveal">Every tool reads the coin straight from your Hyperliquid tab and updates live. Switch coins — the panel follows.</p>
+    <div class="fgrid">
+      <div class="fcard reveal"><div class="ic">🌊</div><span class="tagpill">ANY COIN</span><h3>TWAP Order Flow</h3><p>Active TWAPs, buy/sell split, and projected <b>buy pressure</b> for the next 1h &amp; 24h — incoming flow before it hits the tape.</p></div>
+      <div class="fcard reveal"><div class="ic">📈</div><span class="tagpill">PERP</span><h3>Funding Rate</h3><p>Annualized funding history with 1d / 7d / 30d windows, trailing averages, and a price overlay sparkline.</p></div>
+      <div class="fcard reveal"><div class="ic">🧨</div><span class="tagpill">MAIN-DEX</span><h3>Liquidation Map</h3><p>Hyperdash-backed liquidation levels banded around price — see where the cascades are stacked.</p></div>
+      <div class="fcard reveal"><div class="ic">🛑</div><span class="tagpill">MAIN-DEX</span><h3>Stop-Order Map</h3><p>Stop-order distribution by price band, buy vs sell — the liquidity pools that magnet price.</p></div>
+      <div class="fcard reveal"><div class="ic">⚖️</div><span class="tagpill">10+ VENUES</span><h3>Cross-Venue Arb</h3><p>Funding &amp; price basis vs Binance, Bybit, OKX and 7 more, with a 72h spread chart and a long/short leg readout.</p></div>
+      <div class="fcard reveal"><div class="ic">📰</div><span class="tagpill">ANY COIN</span><h3>News &amp; Buzz</h3><p>Per-coin headlines ranked by <b>recency × source weight</b> — CoinDesk &amp; Bloomberg float up, blog spam sinks.</p></div>
+      <div class="fcard reveal"><div class="ic">🗓️</div><span class="tagpill">RWA</span><h3>Economic Events</h3><p>Macro / commodity / equity catalysts scoped to the coin — EIA &amp; WASDE for oil, earnings for stocks, FOMC for all.</p></div>
+      <div class="fcard reveal"><div class="ic">🔥</div><span class="tagpill">HYPE</span><h3>Protocol Stats</h3><p>Hyperliquid revenue, AF buybacks &amp; burn, plus HYPE spot-ETF cumulative &amp; daily net flows.</p></div>
+      <div class="fcard reveal"><div class="ic">⏳</div><span class="tagpill">HYPE</span><h3>Unstaking Queue</h3><p>The 7-day HYPE unstaking queue visualized — incoming sell pressure and the biggest queued unlocks.</p></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ DEEP DIVES ============ -->
+<section id="deep" style="padding-top:30px">
+  <div class="wrap">
+
+    <!-- DD1: Funding chart -->
+    <div class="dd reveal">
+      <div class="dd-copy">
+        <div class="kicker">Funding Rate</div>
+        <h3>Read the carry at a glance.</h3>
+        <p>Hyperliquid charges funding hourly — we annualize it and chart it against price so you can see whether the market's paying you to hold, or bleeding you out.</p>
+        <ul>
+          <li><span class="ck">→</span> 1d / 7d / 30d windows with trailing-average reference lines</li>
+          <li><span class="ck">→</span> Live "now" APR that ticks every 10 seconds</li>
+          <li><span class="ck">→</span> Price overlay so you can spot funding/price divergences</li>
+        </ul>
+      </div>
+      <div class="mockwrap">
+        <div class="mock">
+          <div class="p-head"><div class="p-title"><span class="lbl mint">FUNDING · HYPE</span></div><span class="lbl">7D</span></div>
+          <div style="display:flex;gap:8px;margin:6px 0 12px">
+            <div class="total buy" style="flex:1"><span class="tag" style="color:var(--text-mute)">NOW APR</span><span class="val" style="color:var(--buy)">+14.2%</span></div>
+            <div class="total" style="flex:1"><span class="tag" style="color:var(--text-mute)">7D AVG</span><span class="val">+9.8%</span></div>
+          </div>
+          <svg class="chart" viewBox="0 0 300 130" preserveAspectRatio="none">
+            <line class="gridln" x1="26" y1="20" x2="294" y2="20"/>
+            <line class="gridln" x1="26" y1="60" x2="294" y2="60"/>
+            <line class="gridln" x1="26" y1="100" x2="294" y2="100"/>
+            <text class="axis" x="22" y="22" text-anchor="end">20%</text>
+            <text class="axis" x="22" y="62" text-anchor="end">10%</text>
+            <text class="axis" x="22" y="102" text-anchor="end">0%</text>
+            <!-- price line -->
+            <path d="M28,95 L70,88 L110,92 L150,70 L190,58 L230,40 L292,46" fill="none" stroke="rgba(255,255,255,0.28)" stroke-width="1.4" stroke-dasharray="3 3"/>
+            <!-- funding area -->
+            <path d="M28,84 L70,76 L110,82 L150,55 L190,48 L230,30 L292,38 L292,118 L28,118 Z" fill="url(#fg)"/>
+            <path d="M28,84 L70,76 L110,82 L150,55 L190,48 L230,30 L292,38" fill="none" stroke="var(--mint-bright)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="292" cy="38" r="3" fill="var(--mint-bright)" stroke="#061514" stroke-width="1.5"/>
+            <defs><linearGradient id="fg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="var(--mint-bright)" stop-opacity="0.26"/><stop offset="1" stop-color="var(--mint-bright)" stop-opacity="0"/></linearGradient></defs>
+          </svg>
+          <div class="fade-line"><span>Apr 24</span><span>now</span></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DD2: Liquidation map -->
+    <div class="dd rev reveal">
+      <div class="dd-copy">
+        <div class="kicker">Liquidation &amp; Stops</div>
+        <h3>See where it breaks.</h3>
+        <p>Liquidation levels and stop-order pools, banded around the current price. The clusters are where forced flow lives — the magnets and the cascade triggers.</p>
+        <ul>
+          <li><span class="ck">→</span> Long vs short liquidations, sized by notional</li>
+          <li><span class="ck">→</span> Nearest sizeable positions re-ranked by proximity to price</li>
+          <li><span class="ck">→</span> Click a band to drill into individual positions</li>
+        </ul>
+      </div>
+      <div class="mockwrap">
+        <div class="mock">
+          <div class="p-head"><div class="p-title"><span class="lbl mint">LIQUIDATION · HYPE</span></div><span class="lbl">$69.50</span></div>
+          <svg class="chart" viewBox="0 0 300 150">
+            <!-- center price line -->
+            <line x1="150" y1="8" x2="150" y2="138" stroke="var(--line-strong)" stroke-dasharray="3 2"/>
+            <!-- short liqs (above, red) right side -->
+            <rect x="150" y="14" width="38" height="9" rx="2" fill="var(--sell)" opacity="0.5"/>
+            <rect x="150" y="28" width="64" height="9" rx="2" fill="var(--sell)" opacity="0.7"/>
+            <rect x="150" y="42" width="30" height="9" rx="2" fill="var(--sell)" opacity="0.4"/>
+            <rect x="150" y="56" width="92" height="9" rx="2" fill="var(--sell)" opacity="0.9"/>
+            <!-- long liqs (below, mint) left side -->
+            <rect x="96" y="76" width="54" height="9" rx="2" fill="var(--buy)" opacity="0.8"/>
+            <rect x="120" y="90" width="30" height="9" rx="2" fill="var(--buy)" opacity="0.45"/>
+            <rect x="70" y="104" width="80" height="9" rx="2" fill="var(--buy)" opacity="0.95"/>
+            <rect x="118" y="118" width="32" height="9" rx="2" fill="var(--buy)" opacity="0.5"/>
+            <text class="axis" x="246" y="63">$22.4M shorts</text>
+            <text class="axis" x="6" y="111">$31.8M longs</text>
+          </svg>
+          <div style="display:flex;gap:8px;margin-top:10px">
+            <div class="total sell" style="flex:1"><span class="tag">SHORTS</span><span class="val">$22.4M</span></div>
+            <div class="total buy" style="flex:1"><span class="tag">LONGS</span><span class="val">$31.8M</span></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DD3: News -->
+    <div class="dd reveal">
+      <div class="dd-copy">
+        <div class="kicker">News &amp; Buzz</div>
+        <h3>The story behind the move.</h3>
+        <p>When a coin rips, you want to know why — fast. The News tab pulls per-coin headlines and ranks them by recency and source quality, so the signal is on top.</p>
+        <ul>
+          <li><span class="ck">→</span> Smart per-coin query (Hyperliquid, RWA names, tickers)</li>
+          <li><span class="ck">→</span> Ranked by recency × outlet weight, de-duplicated</li>
+          <li><span class="ck">→</span> Free &amp; keyless — no account, no setup</li>
+        </ul>
+      </div>
+      <div class="mockwrap">
+        <div class="mock">
+          <div class="p-head"><div class="p-title"><span class="lbl mint">News &amp; Buzz</span></div><span class="lbl">ranked</span></div>
+          <div class="nrow"><span class="nrank">1</span><div class="nbody"><div class="ntitle">Hyperliquid could become a 'financial services juggernaut' as DeFi expands</div><div class="nmeta"><span class="src">CoinDesk</span><span>·</span><span>20h ago</span></div></div></div>
+          <div class="nrow"><span class="nrank">2</span><div class="nbody"><div class="ntitle">Arthur Hayes doubles down on Hyperliquid, sees HYPE overtaking peers</div><div class="nmeta"><span class="src">BeInCrypto</span><span>·</span><span>1h ago</span></div></div></div>
+          <div class="nrow"><span class="nrank">3</span><div class="nbody"><div class="ntitle">HYPE token hits record as CFTC perpetuals approval lifts Hyperliquid</div><div class="nmeta"><span class="src">Yahoo Finance</span><span>·</span><span>15h ago</span></div></div></div>
+          <div class="nrow"><div class="nbody"><div class="ntitle">Bitwise leader: Hyperliquid is bigger than the crypto market</div><div class="nmeta"><span class="src">Decrypt</span><span>·</span><span>16h ago</span></div></div></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</section>
+
+<!-- ============ STAT BAND ============ -->
+<section style="padding:40px 0">
+  <div class="wrap">
+    <div class="statband">
+      <div class="stat reveal"><div class="n">11</div><div class="c">tools in one side panel</div></div>
+      <div class="stat reveal"><div class="n">10+</div><div class="c">venues for funding &amp; basis</div></div>
+      <div class="stat reveal"><div class="n">0</div><div class="c">API keys or accounts needed</div></div>
+      <div class="stat reveal"><div class="n">−4%</div><div class="c">trading fees via referral</div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ INSTALL ============ -->
+<section id="install">
+  <div class="wrap">
+    <p class="eyebrow reveal">Up and running in a minute</p>
+    <h2 class="h2 reveal">Install the extension</h2>
+    <p class="lead reveal">Load it as an unpacked extension while it's pre–Web-Store. It only runs on app.hyperliquid.xyz.</p>
+    <div class="steps">
+      <div class="step reveal"><div class="num">1</div><h4>Download &amp; build</h4><p>Clone the repo and run <code>npm install</code> then <code>npm run build</code> to produce the <code>dist/</code> folder.</p></div>
+      <div class="step reveal"><div class="num">2</div><h4>Load unpacked</h4><p>Open <code>chrome://extensions</code>, turn on <b>Developer mode</b>, click <b>Load unpacked</b>, and pick <code>dist/</code>.</p></div>
+      <div class="step reveal"><div class="num">3</div><h4>Open Hyperliquid</h4><p>Go to <b>app.hyperliquid.xyz</b>, click the Hypurr icon to open the side panel, and pick a coin. Done.</p></div>
+    </div>
+
+    <div class="finalcta reveal">
+      <h2 class="h2" style="margin:0">Stop trading half-blind.</h2>
+      <p class="lead" style="margin-top:14px">Order flow, funding, liquidity maps and news — for the coin in front of you, the moment you need it.</p>
+      <div class="cta-row" style="justify-content:center;margin-top:28px">
+        <a class="btn-primary" href="https://github.com/" id="repo-cta">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="#03201c"><path d="M12 .5C5.7.5.5 5.7.5 12c0 5.1 3.3 9.4 7.9 10.9.6.1.8-.2.8-.5v-1.7c-3.2.7-3.9-1.5-3.9-1.5-.5-1.3-1.3-1.7-1.3-1.7-1.1-.7.1-.7.1-.7 1.2.1 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 .1-.8.4-1.3.7-1.6-2.6-.3-5.3-1.3-5.3-5.7 0-1.3.5-2.3 1.2-3.1-.1-.3-.5-1.5.1-3.1 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4.7 18.3 5 18.3 5c.6 1.6.2 2.8.1 3.1.8.8 1.2 1.8 1.2 3.1 0 4.4-2.7 5.4-5.3 5.7.4.4.8 1.1.8 2.2v3.3c0 .3.2.6.8.5 4.6-1.5 7.9-5.8 7.9-10.9C23.5 5.7 18.3.5 12 .5z"/></svg>
+          Get it on GitHub
+        </a>
+        <a class="btn-ghost" href="#features">Browse the features</a>
+      </div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="foot-in">
+      <a class="brand" href="#top" style="font-size:1rem"><img src="icon128.png" alt="" style="width:24px;height:24px" />Hypurr<b style="color:var(--mint-bright)">.</b></a>
+      <div style="display:flex;gap:22px"><a href="#features">Features</a><a href="#install">Install</a><a href="https://github.com/" id="repo-foot">GitHub</a></div>
+    </div>
+    <p class="disclaimer">Not affiliated with Hyperliquid. An independent, open-source browser tool. Nothing here is financial advice — markets are risky and you can lose money. Data is sourced from public APIs (Hyperliquid, Hyperdash, Hypurrscan, Yahoo Finance, OpenSea, Google News, farside.co.uk) and may be delayed or inaccurate. The −4% figure is the standard Hyperliquid referral fee discount applied when you sign up via the in-panel link.</p>
+  </div>
+</footer>
+
+<script>
+// scroll reveal
+const io=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){e.target.classList.add('in');io.unobserve(e.target)}})},{threshold:.12});
+document.querySelectorAll('.reveal').forEach((el,i)=>{el.style.transitionDelay=(Math.min(i%3,3)*60)+'ms';io.observe(el)});
+
+// hero panel subtle parallax-tilt on mouse
+const panel=document.querySelector('.panel');
+if(panel&&!matchMedia('(prefers-reduced-motion: reduce)').matches){
+  const stage=document.querySelector('.panel-stage');
+  stage.addEventListener('mousemove',(e)=>{
+    const r=stage.getBoundingClientRect();
+    const x=(e.clientX-r.left)/r.width-0.5, y=(e.clientY-r.top)/r.height-0.5;
+    panel.style.transform=`rotateY(${-13+x*16}deg) rotateX(${4-y*14}deg)`;
+  });
+  stage.addEventListener('mouseleave',()=>{panel.style.transform=''});
+}
+
+// animate the buy-pressure numbers when hero is in view
+function animateNum(el,target,prefix,suffix){
+  let cur=0;const dur=1100,start=performance.now();
+  const fmt=n=>prefix+Math.round(n).toLocaleString('en-US')+suffix;
+  function tick(t){const p=Math.min(1,(t-start)/dur);const e=1-Math.pow(1-p,3);el.textContent=fmt(target*e);if(p<1)requestAnimationFrame(tick)}
+  requestAnimationFrame(tick);
+}
+const bpVals=document.querySelectorAll('.bp-row .v');
+const bpIO=new IntersectionObserver((es)=>{es.forEach(e=>{if(e.isIntersecting){animateNum(bpVals[0],968272,'+','$');animateNum(bpVals[1],8218216,'+','$');bpIO.disconnect()}})},{threshold:.4});
+if(bpVals.length)bpIO.observe(bpVals[0]);
+
+// Set GitHub links if a repo slug is provided via ?repo=owner/name (handy for forks)
+const repo=new URLSearchParams(location.search).get('repo');
+if(repo){const u='https://github.com/'+repo;['repo-cta','repo-foot'].forEach(id=>{const a=document.getElementById(id);if(a)a.href=u})}
+</script>
+</body>
+</html>

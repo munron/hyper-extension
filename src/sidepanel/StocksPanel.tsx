@@ -589,7 +589,7 @@ function EpsTrendChart({
 // quarterly cadence. Yahoo's UI puts these next to the EPS dot chart; we
 // stack vertically since the sidepanel is narrow.
 function RevenueEarningsChart({ financials }: { financials: FinancialsChart }) {
-  const [mode, setMode] = useState<"annual" | "quarterly">("annual");
+  const [mode, setMode] = useState<"annual" | "quarterly">("quarterly");
   const bars = useMemo(() => {
     const src = mode === "annual" ? financials.annual : financials.quarterly;
     // Keep the chart readable on a narrow panel — show at most 4 periods.
