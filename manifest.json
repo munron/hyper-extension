@@ -28,7 +28,10 @@
     "https://streamer.finance.yahoo.com/*",
     "https://capi.coinglass.com/*",
     "https://farside.co.uk/*",
-    "https://news.google.com/*"
+    "https://news.google.com/*",
+    "https://data.strategytracker.com/*",
+    "https://api.coingecko.com/*",
+    "https://gamma-api.polymarket.com/*"
   ],
   "action": {
     "default_title": "Open Hypurr Extension"

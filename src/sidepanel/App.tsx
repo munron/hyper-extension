@@ -23,7 +23,10 @@ import HypurrNftChart from "./HypurrNftChart";
 import EventsPanel from "./EventsPanel";
 import HypeUnstakingPanel from "./HypeUnstakingPanel";
 import HypeStatsPanel from "./HypeStatsPanel";
+import MstrPanel from "./MstrPanel";
+import PredictPanel from "./PredictPanel";
 import NewsPanel from "./NewsPanel";
+import { isCryptoCoin } from "../lib/polymarket";
 import {
   fetchReferralState,
   readStoredAddress,
@@ -38,12 +41,14 @@ type TabId =
   | "funding"
   | "arb"
   | "news"
+  | "predict"
   | "events"
   | "unstake"
   | "stats"
   | "liquidation"
   | "stops"
   | "stocks"
+  | "mstr"
   | "nft";
 
 type TabDef = {
@@ -79,6 +84,9 @@ const TABS: TabDef[] = [
   { id: "arb", label: "Arb", isAvailable: (c) => c.hasPerp },
   // News/buzz works for any symbol — keyless Google News search.
   { id: "news", label: "News", isAvailable: () => true },
+  // Prediction-market sentiment (Polymarket): short-term up/down odds for the
+  // majors, related event markets for other crypto. Crypto-only.
+  { id: "predict", label: "Predict", isAvailable: (c) => isCryptoCoin(c.category) },
   // Events only matter for HL's real-world-asset perps — equities, indices,
   // commodities, FX, pre-IPO. Pure crypto tickers carry no macro calendar
   // hooks worth showing, so hide the tab there.
@@ -92,6 +100,9 @@ const TABS: TabDef[] = [
       ),
   },
   { id: "stocks", label: "Stocks", isAvailable: (c) => c.category === "stocks" },
+  // Strategy (MSTR) is the largest corporate BTC holder; its accumulation &
+  // mNAV are BTC-demand signals, so this deep-dive is BTC-only.
+  { id: "mstr", label: "MSTR", isAvailable: (c) => c.coin === "BTC" },
   // Protocol-level stats (fees, AF buybacks, burn) — HYPE only.
   { id: "stats", label: "Stats", isAvailable: (c) => c.coin === "HYPE" },
   // HYPE has its own unstaking queue (Hyperliquid native staking) that
@@ -395,6 +406,13 @@ export default function App() {
           refreshKey={refreshKey}
         />
       )}
+      {activeTab === "predict" && (
+        <PredictPanel
+          coin={resolvedCoinId}
+          displayName={displayName}
+          refreshKey={refreshKey}
+        />
+      )}
       {activeTab === "events" && (
         <EventsPanel
           coin={resolvedCoinId}
@@ -433,6 +451,9 @@ export default function App() {
       )}
       {activeTab === "stats" && (
         <HypeStatsPanel refreshKey={refreshKey} />
+      )}
+      {activeTab === "mstr" && (
+        <MstrPanel refreshKey={refreshKey} />
       )}
 
       {/*
