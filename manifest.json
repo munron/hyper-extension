@@ -5,6 +5,7 @@
   "version": "0.1.0",
   "permissions": ["sidePanel", "tabs", "storage"],
   "host_permissions": [
+    "https://api.hyperliquid.xyz/*",
     "https://api-ui.hyperliquid.xyz/*",
     "https://app.hyperliquid.xyz/*",
     "https://fapi.binance.com/*",
@@ -24,7 +25,10 @@
     "https://query1.finance.yahoo.com/*",
     "https://query2.finance.yahoo.com/*",
     "https://fc.yahoo.com/*",
-    "https://streamer.finance.yahoo.com/*"
+    "https://streamer.finance.yahoo.com/*",
+    "https://capi.coinglass.com/*",
+    "https://farside.co.uk/*",
+    "https://news.google.com/*"
   ],
   "action": {
     "default_title": "Open Hypurr Extension"
@@ -36,6 +40,19 @@
     "service_worker": "src/background/index.ts",
     "type": "module"
   },
+  "content_scripts": [
+    {
+      "matches": ["https://app.hyperliquid.xyz/*"],
+      "js": ["src/content/hlWallet.ts"],
+      "run_at": "document_idle"
+    }
+  ],
+  "web_accessible_resources": [
+    {
+      "resources": ["icon.png"],
+      "matches": ["https://app.hyperliquid.xyz/*"]
+    }
+  ],
   "icons": {
     "16": "public/icon16.png",
     "48": "public/icon48.png",

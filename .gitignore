@@ -1,2 +1,7 @@
 node_modules
 dist
+.DS_Store
+**/.DS_Store
+.tmp2/
+*.zip
+src/_fs_hyp_log.txt
