@@ -2,7 +2,7 @@
 
 <img src="public/icon128.png" width="96" alt="Hypurr" />
 
-# Hypurr
+# Hypurr Extension
 
 ### Trade Hyperliquid with a sixth sense.
 
