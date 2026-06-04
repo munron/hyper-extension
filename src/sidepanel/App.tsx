@@ -21,6 +21,18 @@ import FundingComparePanel from "./FundingComparePanel";
 import StocksPanel from "./StocksPanel";
 import HypurrNftChart from "./HypurrNftChart";
 import EventsPanel from "./EventsPanel";
+import HypeUnstakingPanel from "./HypeUnstakingPanel";
+import HypeStatsPanel from "./HypeStatsPanel";
+import MstrPanel from "./MstrPanel";
+import PredictPanel from "./PredictPanel";
+import NewsPanel from "./NewsPanel";
+import { isCryptoCoin } from "../lib/polymarket";
+import {
+  fetchReferralState,
+  readStoredAddress,
+  subscribeStoredAddress,
+  type ReferralState,
+} from "../lib/hlReferral";
 
 const DEFAULT_RAW_COIN = "HYPE";
 
@@ -28,10 +40,15 @@ type TabId =
   | "twaps"
   | "funding"
   | "arb"
+  | "news"
+  | "predict"
   | "events"
+  | "unstake"
+  | "stats"
   | "liquidation"
   | "stops"
   | "stocks"
+  | "mstr"
   | "nft";
 
 type TabDef = {
@@ -49,10 +66,27 @@ type TabDef = {
 // Liquidation/Stops rely on main-DEX-only data (Hyperdash bands), so those
 // tabs stay gated on the strict main-DEX flag. Stocks appears when HL's own
 // annotation tags the coin as a stock (Yahoo Finance backs the data).
+// Ordered for a trader's read on a fresh coin:
+//   1. Live flow & positioning signals you act on first
+//      (order flow → funding → liquidation/stop levels)
+//   2. Cross-venue edge (Arb basis)
+//   3. Research / context (News, Events, Stocks fundamentals)
+//   4. HYPE-only deep dives (Stats, Unstake, NFT) last
+// TWAPs stays leftmost: it's always-available (good default) and order flow is
+// the first thing to scan.
 const TABS: TabDef[] = [
   { id: "twaps", label: "TWAPs", isAvailable: () => true },
   { id: "funding", label: "FR", isAvailable: (c) => c.hasPerp },
+  // Liquidation/Stops rely on main-DEX-only data (Hyperdash bands), so they're
+  // gated on the strict main-DEX flag.
+  { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasMainPerp },
+  { id: "stops", label: "Stops", isAvailable: (c) => c.hasMainPerp },
   { id: "arb", label: "Arb", isAvailable: (c) => c.hasPerp },
+  // News/buzz works for any symbol — keyless Google News search.
+  { id: "news", label: "News", isAvailable: () => true },
+  // Prediction-market sentiment (Polymarket): short-term up/down odds for the
+  // majors, related event markets for other crypto. Crypto-only.
+  { id: "predict", label: "Predict", isAvailable: (c) => isCryptoCoin(c.category) },
   // Events only matter for HL's real-world-asset perps — equities, indices,
   // commodities, FX, pre-IPO. Pure crypto tickers carry no macro calendar
   // hooks worth showing, so hide the tab there.
@@ -65,9 +99,15 @@ const TABS: TabDef[] = [
         c.category.toLowerCase(),
       ),
   },
-  { id: "liquidation", label: "Liquidation", isAvailable: (c) => c.hasMainPerp },
-  { id: "stops", label: "Stops", isAvailable: (c) => c.hasMainPerp },
   { id: "stocks", label: "Stocks", isAvailable: (c) => c.category === "stocks" },
+  // Strategy (MSTR) is the largest corporate BTC holder; its accumulation &
+  // mNAV are BTC-demand signals, so this deep-dive is BTC-only.
+  { id: "mstr", label: "MSTR", isAvailable: (c) => c.coin === "BTC" },
+  // Protocol-level stats (fees, AF buybacks, burn) — HYPE only.
+  { id: "stats", label: "Stats", isAvailable: (c) => c.coin === "HYPE" },
+  // HYPE has its own unstaking queue (Hyperliquid native staking) that
+  // traders watch for incoming sell pressure. Tab is HYPE-only.
+  { id: "unstake", label: "Unstake", isAvailable: (c) => c.coin === "HYPE" },
   { id: "nft", label: "NFT", isAvailable: (c) => c.coin === "HYPE" },
 ];
 
@@ -96,6 +136,53 @@ export default function App() {
   // const [meta, setMeta] = useState<Meta | null>(null);
   // const [error, setError] = useState<string | null>(null);
   const rebuildTriedRef = useRef(false);
+  const [referral, setReferral] = useState<ReferralState>({ kind: "unknown" });
+
+  // The content script on app.hyperliquid.xyz pushes the connected wallet
+  // into chrome.storage; we hydrate from it, watch for live changes, and
+  // re-check referral state whenever the address rotates.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async (addr: string | null) => {
+      if (!addr) {
+        if (!cancelled) setReferral({ kind: "unknown" });
+        return;
+      }
+      try {
+        const next = await fetchReferralState(addr);
+        if (!cancelled) setReferral(next);
+      } catch {
+        // Soft-fail: keep showing the invite pill if we can't tell.
+        if (!cancelled) setReferral({ kind: "unknown" });
+      }
+    };
+    void readStoredAddress().then(refresh);
+    const unsub = subscribeStoredAddress(refresh);
+    return () => {
+      cancelled = true;
+      unsub();
+    };
+  }, []);
+
+  // Heartbeat so the content script on app.hyperliquid.xyz only redirects to
+  // /join/HYPURREXT when the sidepanel is actually open. Avoids hijacking the
+  // tab when the user isn't even looking at the extension.
+  useEffect(() => {
+    const beat = () => {
+      void chrome.storage.local.set({ hlSidepanelHeartbeat: Date.now() });
+    };
+    beat();
+    const id = setInterval(beat, 3000);
+    const clearBeat = () => {
+      void chrome.storage.local.set({ hlSidepanelHeartbeat: 0 });
+    };
+    window.addEventListener("pagehide", clearBeat);
+    return () => {
+      clearInterval(id);
+      window.removeEventListener("pagehide", clearBeat);
+      clearBeat();
+    };
+  }, []);
 
   // Resolves to true when the active tab is a Hyperliquid trade page (so
   // the coin was updated to follow it), false when it isn't (coin left
@@ -224,20 +311,63 @@ export default function App() {
         <div className="header-top">
           <div className="title-row">
             <img
+              key={resolvedCoinId}
               className="coin-icon"
               src={`https://app.hyperliquid.xyz/coins/${encodeURIComponent(resolvedCoinId)}.svg`}
               alt=""
               aria-hidden="true"
+              onError={(e) => {
+                // The remote coin SVG occasionally fails to load, which would
+                // otherwise render as a bright "broken image" disc on the dark
+                // header. Fall back to the bundled brand icon once.
+                const img = e.currentTarget;
+                if (img.dataset.fallback) return;
+                img.dataset.fallback = "1";
+                img.classList.add("fallback");
+                img.src = chrome.runtime.getURL("icon.png");
+              }}
             />
-            <h1>{displayName}</h1>
+            <h1>
+              <a
+                className="coin-title-link"
+                href={`https://app.hyperliquid.xyz/trade/${encodeURIComponent(resolvedCoinId)}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title={`Open ${resolvedCoinId} on Hyperliquid`}
+              >
+                {displayName}
+              </a>
+            </h1>
             {annotation?.category && <span className="badge">{annotation.category}</span>}
           </div>
-          <img
-            className="brand-icon"
-            src={chrome.runtime.getURL("icon.png")}
-            alt="Hypurr Extension"
-            title="Hypurr Extension"
-          />
+          {referral.kind === "referred" ? (
+            <div className="header-right" title="Referral code applied">
+              <img
+                className="brand-icon"
+                src={chrome.runtime.getURL("icon.png")}
+                alt="Hypurr Extension"
+              />
+            </div>
+          ) : (
+            <a
+              className="invite-pill"
+              href="https://app.hyperliquid.xyz/join/HYPURREXT"
+              target="_blank"
+              rel="noreferrer"
+              title="Trade on Hyperliquid with 4% off fees via our referral"
+            >
+              <img
+                className="invite-pill-icon"
+                src={chrome.runtime.getURL("icon.png")}
+                alt=""
+                aria-hidden="true"
+              />
+              <span className="invite-pill-text">
+                Trade <span className="invite-pill-dot">·</span> Save{" "}
+                <span className="invite-pill-amt">4%</span>
+              </span>
+            </a>
+          )}
         </div>
 
         {/*
@@ -265,6 +395,21 @@ export default function App() {
         <FundingComparePanel
           coin={resolvedCoinId}
           category={annotation?.category ?? null}
+          refreshKey={refreshKey}
+        />
+      )}
+      {activeTab === "news" && (
+        <NewsPanel
+          coin={resolvedCoinId}
+          displayName={displayName}
+          category={annotation?.category ?? null}
+          refreshKey={refreshKey}
+        />
+      )}
+      {activeTab === "predict" && (
+        <PredictPanel
+          coin={resolvedCoinId}
+          displayName={displayName}
           refreshKey={refreshKey}
         />
       )}
@@ -300,6 +445,15 @@ export default function App() {
       )}
       {activeTab === "nft" && (
         <HypurrNftChart coin={resolvedCoinId} refreshKey={refreshKey} />
+      )}
+      {activeTab === "unstake" && (
+        <HypeUnstakingPanel refreshKey={refreshKey} coinIndex={coinIndex} />
+      )}
+      {activeTab === "stats" && (
+        <HypeStatsPanel refreshKey={refreshKey} />
+      )}
+      {activeTab === "mstr" && (
+        <MstrPanel refreshKey={refreshKey} />
       )}
 
       {/*

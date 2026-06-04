@@ -78,7 +78,11 @@ export default function FundingComparePanel({ coin, category, refreshKey }: Prop
   const [selected, setSelected] = useState<string | null>(null);
   // false = the profit-capturing direction (long the lower, short the higher).
   const [flipped, setFlipped] = useState(false);
+  // Split clocks: countdown updates every second, chart math (72h window,
+  // means, tick positions) only every 60s. Per-second chart re-renders are
+  // both invisible at 72h scale and surprisingly expensive.
   const [now, setNow] = useState(() => Date.now());
+  const [nowSlow, setNowSlow] = useState(() => Date.now());
   // 72h APR history for the selected pair's two legs (HL + counterparty).
   const [history, setHistory] = useState<{
     venue: string;
@@ -138,6 +142,12 @@ export default function FundingComparePanel({ coin, category, refreshKey }: Prop
   // Tick the countdowns once a second.
   useEffect(() => {
     const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // Slow clock for the spread-history chart's "now" boundary.
+  useEffect(() => {
+    const id = setInterval(() => setNowSlow(Date.now()), 60_000);
     return () => clearInterval(id);
   }, []);
 
@@ -303,7 +313,7 @@ export default function FundingComparePanel({ coin, category, refreshKey }: Prop
         <UnderlyingRef
           underlying={underlying}
           hlMark={hl.markPx}
-          now={now}
+          now={nowSlow}
         />
       )}
 
@@ -364,7 +374,7 @@ export default function FundingComparePanel({ coin, category, refreshKey }: Prop
             cpName={active.venue}
             history={history && history.venue === active.venue ? history : null}
             loading={historyLoading}
-            now={now}
+            now={nowSlow}
           />
         </div>
       )}

@@ -37,6 +37,36 @@ function fmtEta(ms: number): string {
   return rm ? `${h}h${rm}m` : `${h}h`;
 }
 
+// Full grouped USD ("968,272"), no $ — the caller appends sign + "$".
+function fmtFullUsd(n: number): string {
+  return Math.round(n).toLocaleString("en-US");
+}
+
+const HOUR_MS = 3_600_000;
+const DAY_MS = 86_400_000;
+
+// Net buy notional (USD) projected to execute within the next `windowMs`.
+// A TWAP fills its total notional ~linearly over its duration (slices every
+// ~30s), so the portion landing inside the window is
+//   (totalUsd / durationMs) * min(windowMs, remainingMs).
+// Buys add, sells subtract — the sum is the net buy pressure for that window.
+function windowNetUsd(
+  entries: TwapEntry[],
+  windowMs: number,
+  now: number,
+): number {
+  let net = 0;
+  for (const e of entries) {
+    if (e.durationMs <= 0) continue;
+    const remainingMs = Math.max(0, e.endsAt - now);
+    const inWindow = Math.min(windowMs, remainingMs);
+    if (inWindow <= 0) continue;
+    const notional = (e.totalUsd / e.durationMs) * inWindow;
+    net += e.isBuy ? notional : -notional;
+  }
+  return net;
+}
+
 type Props = { coin: string; coinIndex: CoinIndex | null; refreshKey: number };
 
 export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
@@ -120,12 +150,22 @@ export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
 
   const sorted = [...filtered].sort((a, b) => b.remainingUsd - a.remainingUsd);
 
+  const now = Date.now();
+  const next1h = windowNetUsd(filtered, HOUR_MS, now);
+  const next24h = windowNetUsd(filtered, DAY_MS, now);
+
   return (
     <section className="twap">
       <div className="twap-head">
         <span className="twap-head-label">Active TWAPs</span>
         <span className="twap-head-count">{filtered.length}</span>
         {FilterTabs}
+      </div>
+
+      <div className="twap-pressure">
+        <div className="twap-pressure-title">TWAPs {coin} Buy Pressure</div>
+        <PressureRow label="Next 1h" value={next1h} />
+        <PressureRow label="Next 24h" value={next24h} />
       </div>
 
       <div className="twap-totals">
@@ -177,5 +217,18 @@ export default function TwapPanel({ coin, coinIndex, refreshKey }: Props) {
         ))}
       </ul>
     </section>
+  );
+}
+
+function PressureRow({ label, value }: { label: string; value: number }) {
+  const pos = value >= 0;
+  return (
+    <div className="twap-pressure-row">
+      <span className="twap-pressure-label">{label}:</span>
+      <span className={`twap-pressure-val ${pos ? "pos" : "neg"}`}>
+        {pos ? "+" : "−"}
+        {fmtFullUsd(Math.abs(value))}$
+      </span>
+    </div>
   );
 }

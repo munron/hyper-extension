@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   fetchCollectionSalesChart,
   type CollectionSalesChart,
@@ -15,13 +15,13 @@ const TIMEFRAMES: { label: string; value: Timeframe }[] = [
   { label: "ALL", value: "ALL_TIME" },
 ];
 
-const CHART_WIDTH = 320;
-const CHART_HEIGHT = 180;
+const CHART_WIDTH = 340;
+const CHART_HEIGHT = 188;
 const PAD_LEFT = 34; // y-axis label gutter
-const PAD_RIGHT = 6;
-const PAD_TOP = 6;
-const PRICE_AREA_H = 100;
-const GAP = 4;
+const PAD_RIGHT = 8;
+const PAD_TOP = 8;
+const PRICE_AREA_H = 104;
+const GAP = 6;
 const VOLUME_AREA_H = 46;
 const X_AXIS_H = 14;
 
@@ -66,21 +66,25 @@ function niceTicks(min: number, max: number, target = 4): number[] {
   return ticks;
 }
 
-function percentile(sorted: number[], p: number): number {
-  if (sorted.length === 0) return 0;
-  const idx = (sorted.length - 1) * p;
-  const lo = Math.floor(idx);
-  const hi = Math.ceil(idx);
-  if (lo === hi) return sorted[lo];
-  return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
-}
-
 function fmtDateTick(ms: number, tf: Timeframe): string {
   const d = new Date(ms);
   if (tf === "ONE_DAY") {
     return d.getHours().toString().padStart(2, "0") + ":00";
   }
   return `${d.getMonth() + 1}/${d.getDate()}`;
+}
+
+function fmtTooltipDate(ms: number, tf: Timeframe): string {
+  const d = new Date(ms);
+  const date = d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+  if (tf === "ONE_DAY" || tf === "SEVEN_DAYS") {
+    const time = d.toLocaleTimeString("en-US", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+    return `${date} · ${time}`;
+  }
+  return date;
 }
 
 function dateTicks(tMin: number, tMax: number, count = 4): number[] {
@@ -104,6 +108,29 @@ function bucketMs(tf: Timeframe): number {
   }
 }
 
+type Pt = { x: number; y: number };
+
+// Catmull-Rom → cubic bézier, so the floor line reads as a smooth curve
+// instead of jagged segments. Falls back to a straight move for <2 points.
+function smoothLine(pts: Pt[]): string {
+  if (pts.length === 0) return "";
+  if (pts.length === 1) return `M${pts[0].x},${pts[0].y}`;
+  const t = 0.5; // tension
+  let d = `M${pts[0].x.toFixed(2)},${pts[0].y.toFixed(2)}`;
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[i - 1] ?? pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i + 1];
+    const p3 = pts[i + 2] ?? p2;
+    const c1x = p1.x + ((p2.x - p0.x) / 6) * t * 2;
+    const c1y = p1.y + ((p2.y - p0.y) / 6) * t * 2;
+    const c2x = p2.x - ((p3.x - p1.x) / 6) * t * 2;
+    const c2y = p2.y - ((p3.y - p1.y) / 6) * t * 2;
+    d += ` C${c1x.toFixed(2)},${c1y.toFixed(2)} ${c2x.toFixed(2)},${c2y.toFixed(2)} ${p2.x.toFixed(2)},${p2.y.toFixed(2)}`;
+  }
+  return d;
+}
+
 type Props = { coin: string; refreshKey: number };
 
 export default function HypurrNftChart({ coin, refreshKey }: Props) {
@@ -111,12 +138,15 @@ export default function HypurrNftChart({ coin, refreshKey }: Props) {
   const [data, setData] = useState<CollectionSalesChart | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
 
   useEffect(() => {
     if (coin !== "HYPE") return;
     let cancelled = false;
     setLoading(true);
     setError(null);
+    setHoverIdx(null);
     fetchCollectionSalesChart(COLLECTION_SLUG, tf)
       .then((d) => {
         if (!cancelled) setData(d);
@@ -214,37 +244,43 @@ export default function HypurrNftChart({ coin, refreshKey }: Props) {
       return priceTop + (1 - norm) * PRICE_AREA_H;
     };
 
-    const dots = buckets.map((b) => ({
-      cx: xFor(b.floorT),
-      cy: priceY(b.floor),
-      price: b.floor,
-    }));
-
-    const linePath =
-      buckets.length > 1
-        ? buckets
-            .map(
-              (b, i) =>
-                `${i === 0 ? "M" : "L"}${xFor(b.floorT).toFixed(2)},${priceY(b.floor).toFixed(2)}`,
-            )
-            .join(" ")
-        : "";
+    const pts: {
+      x: number;
+      y: number;
+      price: number;
+      t: number;
+      volumeUsd: number;
+      count: number;
+      barX: number;
+      barH: number;
+    }[] = [];
 
     const barWidth =
       buckets.length > 1
-        ? Math.max(1.5, (chartW / Math.max(1, (tMax - tMin) / bm)) * 0.8)
+        ? Math.max(1.5, (chartW / Math.max(1, (tMax - tMin) / bm)) * 0.78)
         : Math.max(3, chartW * 0.05);
 
-    const bars = buckets.map((b) => {
+    for (const b of buckets) {
       const h = vMax > 0 ? (b.volumeUsd / vMax) * VOLUME_AREA_H : 0;
-      return {
-        x: xFor(b.midT) - barWidth / 2,
-        y: volBottom - h,
-        w: barWidth,
-        h,
-        usd: b.volumeUsd,
-      };
-    });
+      pts.push({
+        x: xFor(b.floorT),
+        y: priceY(b.floor),
+        price: b.floor,
+        t: b.floorT,
+        volumeUsd: b.volumeUsd,
+        count: b.count,
+        barX: xFor(b.midT) - barWidth / 2,
+        barH: h,
+      });
+    }
+
+    const linePts = pts.map((p) => ({ x: p.x, y: p.y }));
+    const linePath = smoothLine(linePts);
+    // Area = the smoothed line, then down to the volume-section top and back.
+    const areaPath =
+      linePts.length > 1
+        ? `${linePath} L${linePts[linePts.length - 1].x.toFixed(2)},${priceBottom} L${linePts[0].x.toFixed(2)},${priceBottom} Z`
+        : "";
 
     const xTickTimes = dateTicks(tMin, tMax, 4);
 
@@ -259,9 +295,10 @@ export default function HypurrNftChart({ coin, refreshKey }: Props) {
         : 0;
 
     return {
-      dots,
+      pts,
       linePath,
-      bars,
+      areaPath,
+      barWidth,
       tMin,
       tMax,
       pMin,
@@ -289,6 +326,30 @@ export default function HypurrNftChart({ coin, refreshKey }: Props) {
   }, [data, tf]);
 
   if (coin !== "HYPE") return null;
+
+  const hover =
+    view && hoverIdx != null && hoverIdx >= 0 && hoverIdx < view.pts.length
+      ? view.pts[hoverIdx]
+      : null;
+
+  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const svg = svgRef.current;
+    if (!svg || !view || view.pts.length === 0) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const vbX = ((e.clientX - rect.left) / rect.width) * CHART_WIDTH;
+    // nearest point by x
+    let best = 0;
+    let bestD = Infinity;
+    for (let i = 0; i < view.pts.length; i++) {
+      const d = Math.abs(view.pts[i].x - vbX);
+      if (d < bestD) {
+        bestD = d;
+        best = i;
+      }
+    }
+    setHoverIdx(best);
+  };
 
   return (
     <section className="nft">
@@ -350,94 +411,156 @@ export default function HypurrNftChart({ coin, refreshKey }: Props) {
             </div>
           </div>
 
-          <svg
-            className="nft-chart"
-            viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
-            preserveAspectRatio="xMidYMid meet"
-            role="img"
-            aria-label="Hypurr NFT sales chart"
+          <div
+            className="fr-chart-wrap"
+            onMouseMove={handleMove}
+            onMouseLeave={() => setHoverIdx(null)}
           >
-            {/* Horizontal gridlines + Y-axis labels */}
-            {view.yTicks.map((tk, i) => {
-              const y = view.priceYFor(tk);
-              if (y < view.priceTop - 0.5 || y > view.priceBottom + 0.5) return null;
-              return (
-                <g key={`y${i}`}>
-                  <line
-                    x1={view.chartLeft}
-                    x2={view.chartRight}
-                    y1={y}
-                    y2={y}
-                    className="nft-grid-line"
+            <svg
+              ref={svgRef}
+              className="nft-chart"
+              viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
+              preserveAspectRatio="xMidYMid meet"
+              role="img"
+              aria-label="Hypurr NFT sales chart"
+            >
+              <defs>
+                <linearGradient id="nftAreaFill" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="0%" className="nft-area-top" />
+                  <stop offset="100%" className="nft-area-bottom" />
+                </linearGradient>
+              </defs>
+
+              {/* Horizontal gridlines + Y-axis labels */}
+              {view.yTicks.map((tk, i) => {
+                const y = view.priceYFor(tk);
+                if (y < view.priceTop - 0.5 || y > view.priceBottom + 0.5) return null;
+                return (
+                  <g key={`y${i}`}>
+                    <line
+                      x1={view.chartLeft}
+                      x2={view.chartRight}
+                      y1={y}
+                      y2={y}
+                      className="nft-grid-line"
+                    />
+                    <text
+                      x={view.chartLeft - 5}
+                      y={y}
+                      className="nft-axis-label nft-axis-y"
+                      textAnchor="end"
+                      dominantBaseline="middle"
+                    >
+                      {fmtAxisHype(tk)}
+                    </text>
+                  </g>
+                );
+              })}
+
+              {/* Volume bars */}
+              {view.pts.map((p, i) => {
+                if (p.barH <= 0) return null;
+                return (
+                  <rect
+                    key={`v${i}`}
+                    x={p.barX}
+                    y={view.volBottom - p.barH}
+                    width={view.barWidth}
+                    height={p.barH}
+                    rx={Math.min(1.2, view.barWidth / 2)}
+                    className={`nft-volume-bar${hoverIdx === i ? " active" : ""}`}
                   />
+                );
+              })}
+              {/* Volume baseline */}
+              <line
+                x1={view.chartLeft}
+                x2={view.chartRight}
+                y1={view.volBottom + 0.5}
+                y2={view.volBottom + 0.5}
+                className="nft-axis-line"
+              />
+
+              {/* Price area fill + line */}
+              {view.areaPath && (
+                <path d={view.areaPath} className="nft-price-area" />
+              )}
+              {view.linePath && (
+                <path d={view.linePath} className="nft-price-line" />
+              )}
+
+              {/* Last-point marker */}
+              {view.pts.length > 0 && hover == null && (
+                <circle
+                  cx={view.pts[view.pts.length - 1].x}
+                  cy={view.pts[view.pts.length - 1].y}
+                  r={2.8}
+                  className="nft-price-last"
+                />
+              )}
+
+              {/* Hover crosshair + active marker */}
+              {hover && (
+                <>
+                  <line
+                    x1={hover.x}
+                    x2={hover.x}
+                    y1={view.priceTop}
+                    y2={view.volBottom}
+                    className="fr-crosshair"
+                    pointerEvents="none"
+                  />
+                  <circle
+                    cx={hover.x}
+                    cy={hover.y}
+                    r={3.2}
+                    className="nft-price-active"
+                    pointerEvents="none"
+                  />
+                </>
+              )}
+
+              {/* X-axis date labels */}
+              {view.xTickTimes.map((tt, i) => {
+                const x = view.xFor(tt);
+                const anchor =
+                  i === 0 ? "start" : i === view.xTickTimes.length - 1 ? "end" : "middle";
+                return (
                   <text
-                    x={view.chartLeft - 4}
-                    y={y}
-                    className="nft-axis-label nft-axis-y"
-                    textAnchor="end"
-                    dominantBaseline="middle"
+                    key={`x${i}`}
+                    x={x}
+                    y={view.xAxisY}
+                    className="nft-axis-label nft-axis-x"
+                    textAnchor={anchor}
+                    dominantBaseline="hanging"
                   >
-                    {fmtAxisHype(tk)}
+                    {fmtDateTick(tt, tf)}
                   </text>
-                </g>
-              );
-            })}
+                );
+              })}
+            </svg>
 
-            {/* Volume bars */}
-            {view.bars.map((b, i) => (
-              <rect
-                key={`v${i}`}
-                x={b.x}
-                y={b.y}
-                width={b.w}
-                height={b.h}
-                className="nft-volume-bar"
-              />
-            ))}
-            {/* Volume baseline */}
-            <line
-              x1={view.chartLeft}
-              x2={view.chartRight}
-              y1={view.volBottom + 0.5}
-              y2={view.volBottom + 0.5}
-              className="nft-axis-line"
-            />
-
-            {/* Price line */}
-            {view.linePath && (
-              <path d={view.linePath} className="nft-price-line" />
+            {hover && (
+              <div
+                className="fr-tooltip center"
+                style={{ left: `${(hover.x / CHART_WIDTH) * 100}%` }}
+              >
+                <div className="fr-tooltip-date">{fmtTooltipDate(hover.t, tf)}</div>
+                <div className="fr-tooltip-row">
+                  <span className="fr-tooltip-name">Floor</span>
+                  <span className="fr-tooltip-val">{fmtHype(hover.price)} HYPE</span>
+                </div>
+                <div className="fr-tooltip-row">
+                  <span className="fr-tooltip-name">Volume</span>
+                  <span className="fr-tooltip-val">{fmtUsd(hover.volumeUsd)}</span>
+                </div>
+                <div className="fr-tooltip-row">
+                  <span className="fr-tooltip-name">Sales</span>
+                  <span className="fr-tooltip-val">{hover.count}</span>
+                </div>
+              </div>
             )}
-            {/* Price dots */}
-            {view.dots.map((d, i) => (
-              <circle
-                key={`d${i}`}
-                cx={d.cx}
-                cy={d.cy}
-                r={1.2}
-                className="nft-price-dot"
-              />
-            ))}
-
-            {/* X-axis date labels */}
-            {view.xTickTimes.map((tt, i) => {
-              const x = view.xFor(tt);
-              const anchor =
-                i === 0 ? "start" : i === view.xTickTimes.length - 1 ? "end" : "middle";
-              return (
-                <text
-                  key={`x${i}`}
-                  x={x}
-                  y={view.xAxisY}
-                  className="nft-axis-label nft-axis-x"
-                  textAnchor={anchor}
-                  dominantBaseline="hanging"
-                >
-                  {fmtDateTick(tt, tf)}
-                </text>
-              );
-            })}
-          </svg>
-
+          </div>
         </>
       )}
     </section>
