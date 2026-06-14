@@ -3794,11 +3794,21 @@ button.fc-venue:hover {
   color: var(--text-mute);
   font-variant-numeric: tabular-nums;
 }
+.hs-legend-item.clickable {
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.14s ease;
+}
+.hs-legend-item.dimmed {
+  opacity: 0.35;
+}
 .hs-legend-swatch {
   width: 8px;
   height: 8px;
   border-radius: 2px;
   display: inline-block;
+  border: 1.5px solid transparent;
+  box-sizing: border-box;
 }
 
 /* TWAP buy-pressure card (Next 1h / 24h net buy notional) */

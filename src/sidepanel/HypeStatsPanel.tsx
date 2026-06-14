@@ -4,16 +4,18 @@ import { fetchHypeStats, type DailyPoint, type HypeStats } from "../lib/hypeStat
 // now scrape farside.co.uk/hyp/ instead. The old coinglass module is kept in
 // the tree for reference.
 import { fetchHypeEtfFlow, type EtfFlowDay } from "../lib/farsideEtf";
+import { fetchEtfVolume, type EtfVolumeDay } from "../lib/yahooEtfVolume";
 
 const REFRESH_MS = 60_000;
 const CHART_DAYS = 90;
 
-type Props = { refreshKey: number };
+type Props = { refreshKey: number; subTab: "revenue" | "etf" };
 
-export default function HypeStatsPanel({ refreshKey }: Props) {
+export default function HypeStatsPanel({ refreshKey, subTab }: Props) {
   const [stats, setStats] = useState<HypeStats | null>(null);
   const [etf, setEtf] = useState<EtfFlowDay[] | null>(null);
   const [etfError, setEtfError] = useState<string | null>(null);
+  const [etfVolume, setEtfVolume] = useState<{ days: EtfVolumeDay[]; tickers: string[] } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -58,9 +60,22 @@ export default function HypeStatsPanel({ refreshKey }: Props) {
         setEtfError(e instanceof Error ? e.message : String(e));
       }
     };
+    const runVolume = async () => {
+      try {
+        const v = await fetchEtfVolume();
+        if (cancelled) return;
+        setEtfVolume(v);
+      } catch {
+        // volume is supplementary; don't block on failure
+      }
+    };
     void run();
+    void runVolume();
     const id = setInterval(() => {
-      if (!document.hidden) void run();
+      if (!document.hidden) {
+        void run();
+        void runVolume();
+      }
     }, REFRESH_MS * 5);
     return () => {
       cancelled = true;
@@ -95,39 +110,42 @@ export default function HypeStatsPanel({ refreshKey }: Props) {
 
   return (
     <section className="hs">
-      <Header />
+      {subTab === "revenue" && (
+        <>
+          <Header />
+          <div className="hs-card">
+            <div className="hs-hero">
+              <div className="hs-hero-label">Hyperliquid · Revenue 24h</div>
+              <div className="hs-hero-value">{fmtUsd(stats.revenue24h)}</div>
+              <div className="hs-hero-hint">
+                ≒ Funds the AF uses to buy back & burn HYPE
+              </div>
+            </div>
 
-      <div className="hs-card">
-        <div className="hs-hero">
-          <div className="hs-hero-label">Hyperliquid · Revenue 24h</div>
-          <div className="hs-hero-value">{fmtUsd(stats.revenue24h)}</div>
-          <div className="hs-hero-hint">
-            ≒ Funds the AF uses to buy back & burn HYPE
+            <div className="hs-grid">
+              <Stat label="All-time revenue" value={fmtUsd(stats.revenueAllTime)} />
+              <Stat label="All-time burnt" value={`${fmtHype(stats.burnAllTime)} HYPE`} />
+              <Stat
+                label="% of supply burnt"
+                value={`${stats.percentBurnAllTime.toFixed(2)}%`}
+              />
+            </div>
+
+            <div className="hs-divider" />
+
+            <div className="hs-chart-head">
+              <div className="hs-chart-label">
+                Daily revenue · last {CHART_DAYS} days
+              </div>
+              <div className="hs-chart-peak">peak · {fmtUsd(peak)}</div>
+            </div>
+
+            <Chart data={chartData} peak={peak} />
           </div>
-        </div>
+        </>
+      )}
 
-        <div className="hs-grid">
-          <Stat label="All-time revenue" value={fmtUsd(stats.revenueAllTime)} />
-          <Stat label="All-time burnt" value={`${fmtHype(stats.burnAllTime)} HYPE`} />
-          <Stat
-            label="% of supply burnt"
-            value={`${stats.percentBurnAllTime.toFixed(2)}%`}
-          />
-        </div>
-
-        <div className="hs-divider" />
-
-        <div className="hs-chart-head">
-          <div className="hs-chart-label">
-            Daily revenue · last {CHART_DAYS} days
-          </div>
-          <div className="hs-chart-peak">peak · {fmtUsd(peak)}</div>
-        </div>
-
-        <Chart data={chartData} peak={peak} />
-      </div>
-
-      <EtfCard etf={etf} error={etfError} />
+      {subTab === "etf" && <EtfCard etf={etf} error={etfError} volume={etfVolume} />}
     </section>
   );
 }
@@ -137,10 +155,41 @@ export default function HypeStatsPanel({ refreshKey }: Props) {
 function EtfCard({
   etf,
   error,
+  volume,
 }: {
   etf: EtfFlowDay[] | null;
   error: string | null;
+  volume: { days: EtfVolumeDay[]; tickers: string[] } | null;
 }) {
+  const [hiddenTickers, setHiddenTickers] = useState<Set<string>>(new Set());
+
+  const tickerTotals = useMemo(() => {
+    if (!etf) return new Map<string, number>();
+    const m = new Map<string, number>();
+    for (const d of etf) {
+      for (const [t, v] of Object.entries(d.perTicker)) {
+        m.set(t, (m.get(t) ?? 0) + Math.abs(v));
+      }
+    }
+    return m;
+  }, [etf]);
+
+  const tickers = useMemo(
+    () => [...tickerTotals.entries()].sort((a, b) => b[1] - a[1]).map(([t]) => t),
+    [tickerTotals],
+  );
+
+  const toggleTicker = (t: string) => {
+    setHiddenTickers((prev) => {
+      const next = new Set(prev);
+      if (next.has(t)) next.delete(t);
+      else next.add(t);
+      return next;
+    });
+  };
+
+  const visibleTickers = tickers.filter((t) => !hiddenTickers.has(t));
+
   if (error && !etf) {
     return (
       <div className="hs-card">
@@ -166,20 +215,12 @@ function EtfCard({
     );
   }
 
-  const cumulative = etf.reduce((s, d) => s + d.netFlowUsd, 0);
+  const cumulative = etf.reduce((s, d) => {
+    let dayTotal = 0;
+    for (const t of visibleTickers) dayTotal += d.perTicker[t] ?? 0;
+    return s + dayTotal;
+  }, 0);
   const days = etf.length;
-
-  // Discover the tickers actually present, ordered by all-time contribution
-  // so the stacked bars layer consistently (biggest issuer on bottom).
-  const tickerTotals = new Map<string, number>();
-  for (const d of etf) {
-    for (const [t, v] of Object.entries(d.perTicker)) {
-      tickerTotals.set(t, (tickerTotals.get(t) ?? 0) + Math.abs(v));
-    }
-  }
-  const tickers = [...tickerTotals.entries()]
-    .sort((a, b) => b[1] - a[1])
-    .map(([t]) => t);
 
   return (
     <div className="hs-card">
@@ -195,18 +236,15 @@ function EtfCard({
       </div>
 
       <div className="hs-chart-head">
-        <div className="hs-chart-label">Daily Net Flow</div>
+        <div className="hs-chart-label">By Fund</div>
+        <Legend tickers={tickers} hiddenTickers={hiddenTickers} onToggle={toggleTicker} />
       </div>
-      <EtfFlowChart etf={etf} />
+      <EtfStackedChart etf={etf} tickers={visibleTickers} allTickers={tickers} />
 
-      {tickers.length > 1 && (
+      {volume && volume.days.length > 0 && (
         <>
           <div className="hs-divider" />
-          <div className="hs-chart-head">
-            <div className="hs-chart-label">By Fund (stacked)</div>
-            <Legend tickers={tickers} />
-          </div>
-          <EtfStackedChart etf={etf} tickers={tickers} />
+          <EtfVolumeSection volume={volume} hiddenTickers={hiddenTickers} onToggle={toggleTicker} />
         </>
       )}
     </div>
@@ -221,139 +259,46 @@ function colorFor(idx: number): string {
   return TICKER_COLORS[idx % TICKER_COLORS.length];
 }
 
-function Legend({ tickers }: { tickers: string[] }) {
+function Legend({
+  tickers,
+  hiddenTickers,
+  onToggle,
+}: {
+  tickers: string[];
+  hiddenTickers: Set<string>;
+  onToggle: (t: string) => void;
+}) {
   return (
     <div className="hs-legend">
-      {tickers.map((t, i) => (
-        <span key={t} className="hs-legend-item">
+      {tickers.map((t, i) => {
+        const hidden = hiddenTickers.has(t);
+        return (
           <span
-            className="hs-legend-swatch"
-            style={{ background: colorFor(i) }}
-          />
-          {t}
-        </span>
-      ))}
-    </div>
-  );
-}
-
-function EtfFlowChart({ etf }: { etf: EtfFlowDay[] }) {
-  const svgRef = useRef<SVGSVGElement | null>(null);
-  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
-
-  const plotLeft = CHART_PAD_L;
-  const plotRight = CHART_W - CHART_PAD_R;
-  const plotW = plotRight - plotLeft;
-  const plotBottom = CHART_PAD_T + CHART_PLOT_H;
-
-  const absMax = Math.max(1, ...etf.map((d) => Math.abs(d.netFlowUsd)));
-  // Two-sided y-axis when there are outflow days, else just positive.
-  const hasNeg = etf.some((d) => d.netFlowUsd < 0);
-  const zeroY = hasNeg
-    ? CHART_PAD_T + CHART_PLOT_H / 2
-    : CHART_PAD_T + CHART_PLOT_H;
-  const halfH = hasNeg ? CHART_PLOT_H / 2 : CHART_PLOT_H;
-
-  const barW = Math.max(2, plotW / Math.max(1, etf.length) - 2);
-
-  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
-    const svg = svgRef.current;
-    if (!svg) return;
-    const rect = svg.getBoundingClientRect();
-    if (rect.width <= 0) return;
-    const vbX = ((e.clientX - rect.left) / rect.width) * CHART_W;
-    if (vbX < plotLeft || vbX > plotRight) {
-      setHoverIdx(null);
-      return;
-    }
-    const idx = Math.max(
-      0,
-      Math.min(etf.length - 1, Math.floor(((vbX - plotLeft) / plotW) * etf.length)),
-    );
-    setHoverIdx(idx);
-  };
-
-  const hover = hoverIdx != null ? etf[hoverIdx] : null;
-
-  return (
-    <div className="hs-chart">
-      <div
-        className="fr-chart-wrap"
-        onMouseMove={handleMove}
-        onMouseLeave={() => setHoverIdx(null)}
-      >
-        <svg
-          ref={svgRef}
-          className="hs-chart-svg"
-          viewBox={`0 0 ${CHART_W} ${CHART_H}`}
-          preserveAspectRatio="none"
-        >
-          {hasNeg && (
-            <line
-              x1={plotLeft}
-              x2={plotRight}
-              y1={zeroY}
-              y2={zeroY}
-              className="us-chart-grid"
-            />
-          )}
-          {etf.map((d, i) => {
-            if (d.netFlowUsd === 0) return null;
-            const x = plotLeft + (i / etf.length) * plotW;
-            const h = (Math.abs(d.netFlowUsd) / absMax) * halfH;
-            const y = d.netFlowUsd >= 0 ? zeroY - h : zeroY;
-            return (
-              <rect
-                key={d.date}
-                x={x}
-                y={y}
-                width={barW}
-                height={h}
-                className={`hs-chart-bar${
-                  d.netFlowUsd < 0 ? " neg" : ""
-                }${hoverIdx === i ? " hover" : ""}`}
-              />
-            );
-          })}
-          {hoverIdx != null && (
-            <line
-              x1={plotLeft + (hoverIdx / etf.length) * plotW + barW / 2}
-              x2={plotLeft + (hoverIdx / etf.length) * plotW + barW / 2}
-              y1={CHART_PAD_T}
-              y2={plotBottom}
-              className="fr-crosshair"
-              pointerEvents="none"
-            />
-          )}
-        </svg>
-        {hover && (
-          <div
-            className="fr-tooltip center"
-            style={{
-              left: `${((plotLeft + (hoverIdx! / etf.length) * plotW + barW / 2) / CHART_W) * 100}%`,
-            }}
+            key={t}
+            className={`hs-legend-item clickable${hidden ? " dimmed" : ""}`}
+            onClick={() => onToggle(t)}
           >
-            <div className="fr-tooltip-date">{fmtShortDate(hover.date)}</div>
-            <div className="fr-tooltip-row">
-              <span className="fr-tooltip-name">Net flow</span>
-              <span className="fr-tooltip-val">
-                {hover.netFlowUsd >= 0 ? "+" : ""}
-                {fmtUsd(hover.netFlowUsd)}
-              </span>
-            </div>
-          </div>
-        )}
-      </div>
+            <span
+              className="hs-legend-swatch"
+              style={{ background: hidden ? "transparent" : colorFor(i), borderColor: colorFor(i) }}
+            />
+            {t}
+          </span>
+        );
+      })}
     </div>
   );
 }
+
 
 function EtfStackedChart({
   etf,
   tickers,
+  allTickers,
 }: {
   etf: EtfFlowDay[];
   tickers: string[];
+  allTickers: string[];
 }) {
   const svgRef = useRef<SVGSVGElement | null>(null);
   const [hoverIdx, setHoverIdx] = useState<number | null>(null);
@@ -434,9 +379,10 @@ function EtfStackedChart({
             let yNeg = zeroY;
             return (
               <g key={d.date}>
-                {tickers.map((t, ti) => {
+                {tickers.map((t) => {
                   const v = d.perTicker[t] ?? 0;
                   if (v === 0) return null;
+                  const ci = allTickers.indexOf(t);
                   const h = (Math.abs(v) / absMax) * halfH;
                   let y: number;
                   if (v >= 0) {
@@ -453,7 +399,7 @@ function EtfStackedChart({
                       y={y}
                       width={barW}
                       height={h}
-                      fill={colorFor(ti)}
+                      fill={colorFor(ci)}
                       opacity={hoverIdx == null || hoverIdx === i ? 1 : 0.55}
                     />
                   );
@@ -490,6 +436,161 @@ function EtfStackedChart({
                     {v >= 0 ? "+" : ""}
                     {fmtUsd(v)}
                   </span>
+                </div>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function EtfVolumeSection({
+  volume,
+  hiddenTickers,
+  onToggle,
+}: {
+  volume: { days: EtfVolumeDay[]; tickers: string[] };
+  hiddenTickers: Set<string>;
+  onToggle: (t: string) => void;
+}) {
+  const visibleTickers = volume.tickers.filter((t) => !hiddenTickers.has(t));
+
+  const latestDay = volume.days[volume.days.length - 1];
+  const todayVolume = latestDay
+    ? visibleTickers.reduce((s, t) => s + (latestDay.perTicker[t] ?? 0), 0)
+    : 0;
+
+  return (
+    <>
+      <div className="hs-etf-hero">
+        <div className="hs-hero-label">HYPE Spot ETF · Daily Volume</div>
+        <div className="hs-etf-value">{fmtUsd(todayVolume)}</div>
+        <div className="hs-hero-hint">
+          {volume.days.length}d traded
+        </div>
+      </div>
+
+      <div className="hs-chart-head">
+        <div className="hs-chart-label">Daily $-Volume · Stacked Per Fund</div>
+        <Legend tickers={volume.tickers} hiddenTickers={hiddenTickers} onToggle={onToggle} />
+      </div>
+      <EtfVolumeChart volume={volume} tickers={visibleTickers} allTickers={volume.tickers} />
+    </>
+  );
+}
+
+function EtfVolumeChart({
+  volume,
+  tickers,
+  allTickers,
+}: {
+  volume: { days: EtfVolumeDay[]; tickers: string[] };
+  tickers: string[];
+  allTickers: string[];
+}) {
+  const svgRef = useRef<SVGSVGElement | null>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  const days = volume.days;
+  const plotLeft = CHART_PAD_L;
+  const plotRight = CHART_W - CHART_PAD_R;
+  const plotW = plotRight - plotLeft;
+  const plotBottom = CHART_PAD_T + CHART_PLOT_H;
+
+  const sums = days.map((d) => {
+    let total = 0;
+    for (const t of tickers) total += d.perTicker[t] ?? 0;
+    return total;
+  });
+  const maxSum = Math.max(1, ...sums);
+  const barW = Math.max(2, plotW / Math.max(1, days.length) - 2);
+
+  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const vbX = ((e.clientX - rect.left) / rect.width) * CHART_W;
+    if (vbX < plotLeft || vbX > plotRight) {
+      setHoverIdx(null);
+      return;
+    }
+    const idx = Math.max(
+      0,
+      Math.min(days.length - 1, Math.floor(((vbX - plotLeft) / plotW) * days.length)),
+    );
+    setHoverIdx(idx);
+  };
+
+  const hover = hoverIdx != null ? days[hoverIdx] : null;
+
+  return (
+    <div className="hs-chart">
+      <div
+        className="fr-chart-wrap"
+        onMouseMove={handleMove}
+        onMouseLeave={() => setHoverIdx(null)}
+      >
+        <svg
+          ref={svgRef}
+          className="hs-chart-svg"
+          viewBox={`0 0 ${CHART_W} ${CHART_H}`}
+          preserveAspectRatio="none"
+        >
+          {days.map((d, i) => {
+            const x = plotLeft + (i / days.length) * plotW;
+            let yPos = plotBottom;
+            return (
+              <g key={d.date}>
+                {tickers.map((t) => {
+                  const v = d.perTicker[t] ?? 0;
+                  if (v <= 0) return null;
+                  const ci = allTickers.indexOf(t);
+                  const h = (v / maxSum) * CHART_PLOT_H;
+                  yPos -= h;
+                  return (
+                    <rect
+                      key={t}
+                      x={x}
+                      y={yPos}
+                      width={barW}
+                      height={h}
+                      fill={colorFor(ci)}
+                      opacity={hoverIdx == null || hoverIdx === i ? 1 : 0.55}
+                    />
+                  );
+                })}
+              </g>
+            );
+          })}
+          {hoverIdx != null && (
+            <line
+              x1={plotLeft + (hoverIdx / days.length) * plotW + barW / 2}
+              x2={plotLeft + (hoverIdx / days.length) * plotW + barW / 2}
+              y1={CHART_PAD_T}
+              y2={plotBottom}
+              className="fr-crosshair"
+              pointerEvents="none"
+            />
+          )}
+        </svg>
+        {hover && (
+          <div
+            className="fr-tooltip center"
+            style={{
+              left: `${((plotLeft + (hoverIdx! / days.length) * plotW + barW / 2) / CHART_W) * 100}%`,
+            }}
+          >
+            <div className="fr-tooltip-date">{fmtShortDate(hover.date)}</div>
+            {tickers.map((t) => {
+              const v = hover.perTicker[t] ?? 0;
+              if (v <= 0) return null;
+              return (
+                <div key={t} className="fr-tooltip-row">
+                  <span className="fr-tooltip-name">{t}</span>
+                  <span className="fr-tooltip-val">{fmtUsd(v)}</span>
                 </div>
               );
             })}

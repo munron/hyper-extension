@@ -44,7 +44,8 @@ type TabId =
   | "predict"
   | "events"
   | "unstake"
-  | "stats"
+  | "revenue"
+  | "etf"
   | "liquidation"
   | "stops"
   | "stocks"
@@ -103,8 +104,8 @@ const TABS: TabDef[] = [
   // Strategy (MSTR) is the largest corporate BTC holder; its accumulation &
   // mNAV are BTC-demand signals, so this deep-dive is BTC-only.
   { id: "mstr", label: "MSTR", isAvailable: (c) => c.coin === "BTC" },
-  // Protocol-level stats (fees, AF buybacks, burn) — HYPE only.
-  { id: "stats", label: "Stats", isAvailable: (c) => c.coin === "HYPE" },
+  { id: "revenue", label: "Revenue", isAvailable: (c) => c.coin === "HYPE" },
+  { id: "etf", label: "ETF", isAvailable: (c) => c.coin === "HYPE" },
   // HYPE has its own unstaking queue (Hyperliquid native staking) that
   // traders watch for incoming sell pressure. Tab is HYPE-only.
   { id: "unstake", label: "Unstake", isAvailable: (c) => c.coin === "HYPE" },
@@ -449,8 +450,11 @@ export default function App() {
       {activeTab === "unstake" && (
         <HypeUnstakingPanel refreshKey={refreshKey} coinIndex={coinIndex} />
       )}
-      {activeTab === "stats" && (
-        <HypeStatsPanel refreshKey={refreshKey} />
+      {activeTab === "revenue" && (
+        <HypeStatsPanel refreshKey={refreshKey} subTab="revenue" />
+      )}
+      {activeTab === "etf" && (
+        <HypeStatsPanel refreshKey={refreshKey} subTab="etf" />
       )}
       {activeTab === "mstr" && (
         <MstrPanel refreshKey={refreshKey} />

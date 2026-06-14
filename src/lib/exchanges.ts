@@ -169,27 +169,8 @@ const VENUE_ALIASES: Record<string, Partial<Record<string, string>>> = {
   KRW: {
     Lighter: "USDKRW",
   },
-  // US stocks on Extended carry a "_24_5" suffix (24h × 5 days/wk schedule).
-  // Other venues use the bare ticker, matching HL natively.
-  AAPL: { Extended: "AAPL_24_5" },
-  AMD: { Extended: "AMD_24_5" },
-  AMZN: { Extended: "AMZN_24_5" },
-  BABA: { Extended: "BABA_24_5" },
-  COIN: { Extended: "COIN_24_5" },
-  CRCL: { Extended: "CRCL_24_5" },
-  EWY: { Extended: "EWY_24_5" },
-  GOOG: { Extended: "GOOG_24_5" },
-  HOOD: { Extended: "HOOD_24_5" },
-  INTC: { Extended: "INTC_24_5" },
-  META: { Extended: "META_24_5" },
-  MSFT: { Extended: "MSFT_24_5" },
-  MSTR: { Extended: "MSTR_24_5" },
-  MU: { Extended: "MU_24_5" },
-  NVDA: { Extended: "NVDA_24_5" },
-  ORCL: { Extended: "ORCL_24_5" },
-  PLTR: { Extended: "PLTR_24_5" },
-  SNDK: { Extended: "SNDK_24_5" },
-  TSLA: { Extended: "TSLA_24_5" },
+  // SpaceX — GRVT uses full company name "SPACEX".
+  SPCX: { Grvt: "SPACEX" },
   // Regional stocks renamed on Lighter ("<NAME>USD" suffix for non-US).
   HYUNDAI: { Lighter: "HYUNDAIUSD" },
   SMSN: { Lighter: "SAMSUNGUSD" },
@@ -590,19 +571,18 @@ async function fetchPacifica(coin: string): Promise<VenueResult> {
   const venue = "Pacifica";
   const kind: VenueKind = "DEX";
   try {
-    const j = (await getJson("https://api.pacifica.fi/api/v1/info")) as {
+    const j = (await getJson("https://api.pacifica.fi/api/v1/info/prices")) as {
       data?: {
         symbol: string;
-        funding_rate?: string;
-        next_funding_rate?: string;
-        mark_price?: string;
+        funding?: string;
+        next_funding?: string;
         mark?: string;
-        mid_price?: string;
         mid?: string;
+        oracle?: string;
       }[];
     };
     const row = j.data?.find((x) => x.symbol === coin);
-    const raw = row?.next_funding_rate ?? row?.funding_rate;
+    const raw = row?.next_funding ?? row?.funding;
     if (raw == null) return unavailable(venue, kind, "not listed");
     const intervalHours = 1;
     return {
@@ -611,9 +591,7 @@ async function fetchPacifica(coin: string): Promise<VenueResult> {
       aprPct: toApr(parseFloat(raw), intervalHours),
       intervalHours,
       nextFundingMs: nextTopOfHour(),
-      markPx: parseOptionalNumber(
-        row?.mark_price ?? row?.mark ?? row?.mid_price ?? row?.mid,
-      ),
+      markPx: parseOptionalNumber(row?.mark ?? row?.mid ?? row?.oracle),
       available: true,
     };
   } catch {
@@ -622,6 +600,36 @@ async function fetchPacifica(coin: string): Promise<VenueResult> {
 }
 
 // --- Extended (hourly) -------------------------------------------------------
+
+// Some Extended markets use internal API names that differ from the URL slug
+// and the HL ticker. Map HL ticker → Extended API market base name here.
+// venueTradeUrl stays unaffected (it uses the HL ticker directly).
+const EXTENDED_API_NAMES: Record<string, string> = {
+  AAPL: "AAPL_24_5",
+  AMD: "AMD_24_5",
+  AMZN: "AMZN_24_5",
+  BABA: "BABA_24_5",
+  COIN: "COIN_24_5",
+  CRCL: "CRCL_24_5",
+  EWY: "EWY_24_5",
+  GOOG: "GOOG_24_5",
+  HOOD: "HOOD_24_5",
+  INTC: "INTC_24_5",
+  META: "META_24_5",
+  MSFT: "MSFT_24_5",
+  MSTR: "MSTR_24_5",
+  MU: "MU_24_5",
+  NVDA: "NVDA_24_5",
+  ORCL: "ORCL_24_5",
+  PLTR: "PLTR_24_5",
+  SNDK: "SNDK_24_5",
+  TSLA: "TSLA_24_5",
+  SPCX: "XYZSPCX_ORCLPX",
+};
+
+function extendedApiName(coin: string): string {
+  return EXTENDED_API_NAMES[coin] ?? coin;
+}
 
 async function fetchExtended(coin: string): Promise<VenueResult> {
   const venue = "Extended";
@@ -641,7 +649,8 @@ async function fetchExtended(coin: string): Promise<VenueResult> {
         };
       }[];
     };
-    const ms = j.data?.find((x) => x.name === `${coin}-USD`)?.marketStats;
+    const apiName = extendedApiName(coin);
+    const ms = j.data?.find((x) => x.name === `${apiName}-USD`)?.marketStats;
     if (!ms || ms.fundingRate == null) return unavailable(venue, kind, "not listed");
     const intervalHours = 1;
     return {
@@ -1054,8 +1063,9 @@ async function histPacifica(coin: string): Promise<RawPoint[]> {
 }
 
 async function histExtended(coin: string, since: number): Promise<RawPoint[]> {
+  const apiName = extendedApiName(coin);
   const j = (await getJson(
-    `https://api.starknet.extended.exchange/api/v1/info/${coin}-USD/funding?startTime=${since}&endTime=${Date.now()}`,
+    `https://api.starknet.extended.exchange/api/v1/info/${apiName}-USD/funding?startTime=${since}&endTime=${Date.now()}`,
   )) as { data?: { f?: string; T?: number }[] };
   return (j.data ?? []).map((x) => ({ t: Number(x.T), rate: parseFloat(x.f ?? "") }));
 }
