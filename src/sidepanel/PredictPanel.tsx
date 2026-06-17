@@ -54,8 +54,10 @@ export default function PredictPanel({ coin, displayName, refreshKey }: Props) {
   const empty =
     !ladder && (!catalysts || catalysts.length === 0);
 
+    // Predict has no inner .hs-card sections (unlike Stats/Mstr), so the root
+    // itself wears the mint island card.
   return (
-    <section className="hs">
+    <section className="hs hs-card">
       <div className="hs-head">
         <span className="hs-head-label">Predict · {displayName}</span>
         <span className="hs-head-src">Polymarket</span>

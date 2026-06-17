@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Hypurr Extension",
   "description": "Hyperliquid trading support extension",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "permissions": ["sidePanel", "tabs", "storage"],
   "host_permissions": [
     "https://api.hyperliquid.xyz/*",
@@ -31,7 +31,8 @@
     "https://news.google.com/*",
     "https://data.strategytracker.com/*",
     "https://api.coingecko.com/*",
-    "https://gamma-api.polymarket.com/*"
+    "https://gamma-api.polymarket.com/*",
+    "https://api-boros.pendle.finance/*"
   ],
   "action": {
     "default_title": "Open Hypurr Extension"

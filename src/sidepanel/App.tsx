@@ -126,12 +126,39 @@ async function readActiveCoin(): Promise<string | null> {
 //   return meta.universe.find((a) => a.name === coinId) ?? null;
 // }
 
+// Capture override for store-asset screenshots: opening the side panel page
+// with `?coin=HYPE&tab=funding` pins the coin + tab and disables active-tab
+// syncing, so a screenshot tool gets a deterministic, fixed view. Inert in
+// normal use (no params → null).
+const CAPTURE = (() => {
+  try {
+    const p = new URLSearchParams(window.location.search);
+    const coin = p.get("coin");
+    if (!coin) return null;
+    return { coin: coin.toUpperCase(), tab: p.get("tab") };
+  } catch {
+    return null;
+  }
+})();
+
+// Extension version, read from the manifest at runtime so it tracks bumps
+// automatically. Shown as a small tag in the header.
+const VERSION = (() => {
+  try {
+    return chrome.runtime.getManifest().version;
+  } catch {
+    return "";
+  }
+})();
+
 export default function App() {
-  const [rawCoin, setRawCoin] = useState(DEFAULT_RAW_COIN);
+  const [rawCoin, setRawCoin] = useState(CAPTURE?.coin ?? DEFAULT_RAW_COIN);
   const [coinIndex, setCoinIndex] = useState<CoinIndex | null>(null);
   const [indexBuilding, setIndexBuilding] = useState(false);
   const [refreshKey, setRefreshKey] = useState(0);
-  const [activeTab, setActiveTab] = useState<TabId>("twaps");
+  const [activeTab, setActiveTab] = useState<TabId>(
+    (CAPTURE?.tab as TabId | null) ?? "twaps",
+  );
   // const [annotation, setAnnotation] = useState<PerpAnnotation | null>(null);
   // const [detailLoading, setDetailLoading] = useState(false);
   // const [meta, setMeta] = useState<Meta | null>(null);
@@ -196,6 +223,9 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    // Capture mode: keep the pinned coin, don't follow the active tab.
+    if (CAPTURE) return;
+
     void syncFromActiveTab();
 
     const bump = () => setRefreshKey((k) => k + 1);
@@ -308,6 +338,17 @@ export default function App() {
 
   return (
     <div className="container">
+      {VERSION && (
+        <a
+          className="version-tag"
+          href="https://github.com/munron/hyper-extension/releases"
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Hypurr Extension v${VERSION} — release notes`}
+        >
+          v{VERSION}
+        </a>
+      )}
       <header className="header">
         <div className="header-top">
           <div className="title-row">
@@ -341,7 +382,20 @@ export default function App() {
             </h1>
             {annotation?.category && <span className="badge">{annotation.category}</span>}
           </div>
-          {referral.kind === "referred" ? (
+          <div className="header-actions">
+            <a
+              className="x-link"
+              href="https://x.com/hypurrext"
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Follow @hypurrext on X"
+              aria-label="Follow @hypurrext on X"
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+                <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z" />
+              </svg>
+            </a>
+            {referral.kind === "referred" ? (
             <div className="header-right" title="Referral code applied">
               <img
                 className="brand-icon"
@@ -368,7 +422,8 @@ export default function App() {
                 <span className="invite-pill-amt">4%</span>
               </span>
             </a>
-          )}
+            )}
+          </div>
         </div>
 
         {/*

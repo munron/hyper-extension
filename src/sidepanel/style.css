@@ -78,6 +78,7 @@ body {
 }
 
 .container {
+  position: relative;
   padding: 18px;
   display: flex;
   flex-direction: column;
@@ -136,6 +137,64 @@ body {
 
 /* Referral pill: -4% fee discount link to Hyperliquid via our invite. */
 /* Referral CTA: solid mint pill with brand icon + "Trade · Save 4%". */
+/* Right-side header cluster: X link + referral pill / brand icon. */
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Small, unobtrusive version tag tucked into the top-right gap above the
+   header pill. */
+.version-tag {
+  position: absolute;
+  top: 4px;
+  right: 18px;
+  z-index: 3;
+  font-family: var(--font-mono);
+  font-size: 0.56rem;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  line-height: 1;
+  color: var(--text-dim);
+  text-decoration: none;
+  transition: color 0.14s ease;
+}
+
+.version-tag:hover {
+  color: var(--mint-bright);
+}
+
+/* Subtle mint-toned circular X (Twitter) link. */
+.x-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 34px;
+  height: 34px;
+  flex-shrink: 0;
+  border-radius: var(--r-pill);
+  border: 1px solid var(--line-mint);
+  background: var(--bg-soft-mint);
+  color: var(--text-mute);
+  text-decoration: none;
+  transition: color 0.14s ease, border-color 0.14s ease, background 0.14s ease;
+}
+
+.x-link:hover {
+  color: var(--mint-bright);
+  border-color: var(--line-mint-strong);
+  background: var(--bg-hover);
+}
+
+.x-link svg {
+  width: 15px;
+  height: 15px;
+  fill: currentColor;
+  display: block;
+}
+
 .invite-pill {
   display: inline-flex;
   align-items: center;
@@ -307,6 +366,17 @@ h1 {
   box-shadow: var(--shadow-card);
 }
 
+/* All panels adopt the mint "island" tone (see the FR tab) — flat, mint-tinted
+   cards rather than the neutral elevated panel. `.liq` covers both the
+   Liquidation and Stop maps. */
+.twap,
+.liq,
+.nft {
+  background: var(--bg-soft-mint);
+  border-color: var(--line-mint);
+  box-shadow: none;
+}
+
 /* Card section header pattern: small uppercase label + optional pill */
 .twap-head,
 .liq-head,
@@ -389,6 +459,12 @@ h1 {
   border: 1px solid var(--line-mint);
   letter-spacing: 0.04em;
   font-weight: 600;
+}
+
+/* On the mint island the soft-mint pill fill would vanish into the card, so
+   give the status chip a denser mint surface to stay legible as a chip. */
+.liq-head-window {
+  background: var(--buy-soft);
 }
 
 /* Generic empty/status text */
@@ -778,36 +854,37 @@ h1 {
 }
 
 /* ---- Legend toggles (Stop Order Map) ---- */
+/* Light series key sitting above the chart — caption, not a control band
+   (mint-island spec). Still toggles each series on click. */
 .liq-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 0 2px;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  padding: 2px 2px 0;
 }
 
 .liq-legend-item {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 7px;
+  padding: 1px 2px;
   background: transparent;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xs);
-  color: var(--text);
+  border: none;
+  color: var(--text-mute);
   font-family: var(--font-sans);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease, background 0.12s ease;
+  transition: opacity 0.12s ease, color 0.12s ease;
 }
 
 .liq-legend-item:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .liq-legend-item.off {
-  opacity: 0.4;
+  opacity: 0.45;
   color: var(--text-dim);
   text-decoration: line-through;
 }
@@ -1502,6 +1579,10 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 14px;
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
+  border-radius: var(--r-md);
 }
 
 .fc-head {
@@ -2331,6 +2412,18 @@ button.fc-venue:hover {
   gap: 10px;
 }
 
+/* The funding-rate readout + chart live in one island so they read as a single
+   unit, visually separated from the Boros hedge island stacked below it. */
+.fr-island {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
+  border-radius: var(--r-md);
+}
+
 .fr-head {
   display: flex;
   align-items: center;
@@ -2359,7 +2452,7 @@ button.fc-venue:hover {
 
 .fr-stats {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 8px;
 }
 
@@ -2367,7 +2460,7 @@ button.fc-venue:hover {
   background: var(--bg-tile);
   border: 1px solid var(--line);
   border-radius: var(--r-sm);
-  padding: 8px 10px;
+  padding: 9px 12px;
 }
 
 .fr-stat-label {
@@ -2379,7 +2472,7 @@ button.fc-venue:hover {
 
 .fr-stat-value {
   font-family: var(--font-mono);
-  font-size: 0.95rem;
+  font-size: 1.05rem;
   font-weight: 600;
   color: var(--text);
   font-variant-numeric: tabular-nums;
@@ -2557,63 +2650,64 @@ button.fc-venue:hover {
 /* Average-APR readout strip below the legend. Each window is a button that
    selects it on the chart; the selected one is highlighted in the chart's avg
    blue so the strip and the drawn reference line read as one. */
-.fr-avg-strip {
+/* Segmented term-structure / timeframe control. Three equal segments, each a
+   trailing-average window; the active one sets the chart's lookback and avg
+   line. Replaces the old separate timeframe toggle + avg-pill strip. */
+.fr-timeframe {
   display: flex;
-  flex-wrap: wrap;
+  gap: 3px;
+  padding: 3px;
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+}
+
+.fr-tf-seg {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   align-items: center;
-  gap: 4px;
-  padding: 0 2px;
-}
-
-.fr-avg-strip-label {
-  font-family: var(--font-sans);
-  font-size: 0.56rem;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--text-dim);
-  margin-right: 3px;
-}
-
-.fr-avg-pill {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 5px;
-  padding: 2px 7px;
+  gap: 1px;
+  padding: 5px 4px;
   background: transparent;
-  border: 1px solid transparent;
+  border: none;
   border-radius: var(--r-xs);
-  font-family: var(--font-mono);
-  font-size: 0.64rem;
-  font-variant-numeric: tabular-nums;
   cursor: pointer;
-  transition: background 0.12s ease, border-color 0.12s ease;
+  transition: background 0.12s ease;
 }
 
-.fr-avg-pill:hover {
+.fr-tf-seg:hover:not(.active) {
   background: var(--bg-hover);
 }
 
-/* Selected window — matches the avg line + tag drawn on the chart. */
-.fr-avg-pill.active {
-  background: rgba(122, 162, 247, 0.13);
-  border-color: rgba(122, 162, 247, 0.34);
+/* Selected window — tied to the avg line + tag drawn on the chart. */
+.fr-tf-seg.active {
+  background: rgba(122, 162, 247, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(122, 162, 247, 0.34);
 }
 
-.fr-avg-pill-win {
+.fr-tf-seg-win {
+  font-family: var(--font-sans);
+  font-size: 0.54rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
   color: var(--text-dim);
-  font-size: 0.92em;
 }
-.fr-avg-pill.active .fr-avg-pill-win {
+.fr-tf-seg.active .fr-tf-seg-win {
   color: var(--fr-ref);
 }
 
-.fr-avg-pill-val {
+.fr-tf-seg-val {
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
   font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text);
 }
-.fr-avg-pill-val.up {
+.fr-tf-seg-val.up {
   color: var(--buy);
 }
-.fr-avg-pill-val.down {
+.fr-tf-seg-val.down {
   color: var(--sell);
 }
 
@@ -2642,37 +2736,37 @@ button.fc-venue:hover {
   fill: var(--text-mute);
 }
 
+/* Light series key sitting just above the chart — reads as a caption, not a
+   control band. Still toggles each series on click. */
 .fr-legend {
   display: flex;
   flex-wrap: wrap;
-  gap: 4px;
-  padding: 0 2px;
+  justify-content: flex-end;
+  gap: 4px 12px;
+  padding: 2px 2px 0;
 }
 
 .fr-legend-item {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 3px 7px;
+  padding: 1px 2px;
   background: transparent;
-  border: 1px solid var(--line);
-  border-radius: var(--r-xs);
-  color: var(--text);
+  border: none;
+  color: var(--text-mute);
   font-family: var(--font-sans);
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   letter-spacing: 0.02em;
   cursor: pointer;
-  transition: opacity 0.12s ease, border-color 0.12s ease, color 0.12s ease,
-    background 0.12s ease;
+  transition: opacity 0.12s ease, color 0.12s ease;
 }
 
 .fr-legend-item:hover {
-  border-color: rgba(255, 255, 255, 0.3);
-  background: var(--bg-hover);
+  color: var(--text);
 }
 
 .fr-legend-item.off {
-  opacity: 0.4;
+  opacity: 0.45;
   color: var(--text-dim);
   text-decoration: line-through;
 }
@@ -2705,10 +2799,9 @@ button.fc-venue:hover {
   flex-direction: column;
   gap: 10px;
   padding: 14px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--line);
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
 }
 
 .stocks-head {
@@ -3160,6 +3253,10 @@ button.fc-venue:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 14px;
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
+  border-radius: var(--r-md);
 }
 
 .ev-head {
@@ -3330,6 +3427,10 @@ button.fc-venue:hover {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  padding: 14px;
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
+  border-radius: var(--r-md);
 }
 
 .us-head {
@@ -3644,8 +3745,8 @@ button.fc-venue:hover {
 }
 /* The single "island" containing hero, stats grid, divider, chart. */
 .hs-card {
-  background: var(--bg-elevated);
-  border: 1px solid var(--line);
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
   border-radius: var(--r-md);
   padding: 14px 14px 12px;
   display: flex;
@@ -3857,10 +3958,9 @@ button.fc-venue:hover {
   flex-direction: column;
   gap: 10px;
   padding: 16px;
-  background: var(--bg-elevated);
-  border: 1px solid var(--line);
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
   border-radius: var(--r-md);
-  box-shadow: var(--shadow-card);
 }
 .news-head {
   display: flex;
@@ -4157,3 +4257,154 @@ button.fc-venue:hover {
   font-variant-numeric: tabular-nums;
 }
 .pm-rel-meta .pm-ext { margin-left: auto; }
+
+/* --- Boros funding hedge (FR tab) ----------------------------------------- */
+.fr-boros {
+  padding: 10px 12px 11px;
+  background: var(--bg-soft-mint);
+  border: 1px solid var(--line-mint);
+  border-radius: var(--r-md);
+}
+
+.fr-boros-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.fr-boros-title {
+  font-size: 0.7rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-mute);
+}
+
+.fr-boros-sym {
+  color: var(--text-mute);
+  font-weight: 500;
+}
+
+.fr-boros-mat {
+  font-size: 0.62rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.fr-boros-rates {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.fr-boros-rate {
+  background: var(--bg-tile);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  padding: 7px 9px;
+}
+
+.fr-boros-rate.primary {
+  background: var(--bg-tile-strong);
+  border-color: var(--line-mint-strong);
+}
+
+.fr-boros-rate-label {
+  display: block;
+  font-size: 0.55rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.fr-boros-rate-val {
+  display: block;
+  font-family: var(--font-mono);
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  font-variant-numeric: tabular-nums;
+  margin-top: 2px;
+}
+
+.fr-boros-rate.primary .fr-boros-rate-val {
+  color: var(--mint-bright);
+}
+
+.fr-boros-rate-val.up {
+  color: var(--buy);
+}
+.fr-boros-rate-val.down {
+  color: var(--sell);
+}
+
+.fr-boros-edge {
+  margin-top: 8px;
+  font-size: 0.66rem;
+  font-weight: 500;
+  text-align: center;
+  padding: 4px 6px;
+  border-radius: var(--r-sm);
+  background: var(--bg-tile);
+}
+
+.fr-boros-edge.good {
+  color: var(--buy);
+}
+.fr-boros-edge.bad {
+  color: var(--sell);
+}
+
+.fr-boros-spark-wrap {
+  position: relative;
+  margin-top: 8px;
+  cursor: crosshair;
+}
+
+.fr-boros-spark {
+  width: 100%;
+  height: 40px;
+  display: block;
+}
+
+.fr-tooltip-key.boros {
+  border-top-color: var(--mint);
+}
+
+.fr-boros-spark-line {
+  fill: none;
+  stroke: var(--mint);
+  stroke-width: 1.4;
+  vector-effect: non-scaling-stroke;
+}
+
+.fr-boros-spark-dot {
+  fill: var(--mint-bright);
+}
+
+.fr-boros-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 0.6rem;
+  font-family: var(--font-mono);
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+}
+
+.fr-boros-cta {
+  font-family: inherit;
+  font-weight: 600;
+  color: var(--mint-bright);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.fr-boros-cta:hover {
+  text-decoration: underline;
+}

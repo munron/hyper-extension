@@ -7,17 +7,19 @@ import {
   type FundingHistoryEntry,
 } from "../lib/hyperliquid";
 import { type CoinIndex } from "../lib/coinMap";
+import {
+  fetchBorosMarket,
+  fetchBorosImpliedHistory,
+  type BorosMarket,
+  type BorosImpliedPoint,
+} from "../lib/boros";
 
 // How often to refresh the live "now" funding APR readout.
 const LIVE_REFRESH_MS = 10_000;
 
-const TIMEFRAMES: { label: string; hours: number }[] = [
-  { label: "1D", hours: 24 },
-  { label: "7D", hours: 24 * 7 },
-  { label: "30D", hours: 24 * 30 },
-];
-
-// Trailing windows for the average-APR readout / reference line.
+// Trailing windows for the average-APR readout / reference line. These doubles
+// as the chart's timeframe selector — picking a window both highlights its
+// average line and sets how far back the chart looks.
 const AVG_WINDOWS: { label: string; hours: number }[] = [
   { label: "1D", hours: 24 },
   { label: "7D", hours: 24 * 7 },
@@ -458,22 +460,9 @@ export default function FundingRatePanel({ coin, coinIndex, refreshKey }: Props)
 
   return (
     <section className="fr">
+      <div className="fr-island">
       <div className="fr-head">
         <span className="fr-head-label">Funding Rate · APR</span>
-        <div className="nft-tf" role="tablist">
-          {TIMEFRAMES.map((t) => (
-            <button
-              key={t.hours}
-              type="button"
-              role="tab"
-              aria-selected={hours === t.hours}
-              className={`nft-tf-btn ${hours === t.hours ? "active" : ""}`}
-              onClick={() => setHours(t.hours)}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
       </div>
 
       {loading && !view && <div className="fr-status">Loading…</div>}
@@ -495,15 +484,6 @@ export default function FundingRatePanel({ coin, coinIndex, refreshKey }: Props)
               <div className="fr-stat-sub">now</div>
             </div>
             <div className="fr-stat">
-              <div className="fr-stat-label">Avg APR</div>
-              <div
-                className={`fr-stat-value ${view.meanApr >= 0 ? "up" : "down"}`}
-              >
-                {fmtApr(view.meanApr)}
-              </div>
-              <div className="fr-stat-sub">period</div>
-            </div>
-            <div className="fr-stat">
               <div className="fr-stat-label">Price</div>
               <div className="fr-stat-value">${fmtPrice(view.lastPrice)}</div>
               <div
@@ -514,6 +494,38 @@ export default function FundingRatePanel({ coin, coinIndex, refreshKey }: Props)
               </div>
             </div>
           </div>
+
+          {/* Term structure of funding that doubles as the chart's timeframe
+              selector: each window shows its trailing average APR, and picking
+              one sets how far back the chart looks + which average line is
+              highlighted. Folds the old separate timeframe toggle, "Avg APR"
+              stat card, and avg-pill strip into a single control. */}
+          {view.avgs.length > 0 && (
+            <div
+              className="fr-timeframe"
+              role="tablist"
+              aria-label="Average funding APR / chart window"
+            >
+              {view.avgs.map((a) => (
+                <button
+                  key={a.label}
+                  type="button"
+                  role="tab"
+                  aria-selected={a.hours === hours}
+                  className={`fr-tf-seg${a.hours === hours ? " active" : ""}`}
+                  onClick={() => setHours(a.hours)}
+                  title={`${a.label} window · avg ${fmtApr(a.apr)}`}
+                >
+                  <span className="fr-tf-seg-win">{a.label} avg</span>
+                  <span
+                    className={`fr-tf-seg-val ${a.apr >= 0 ? "up" : "down"}`}
+                  >
+                    {fmtApr(a.apr)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          )}
 
           <div className="fr-legend" role="group" aria-label="Toggle chart series">
             {(
@@ -538,36 +550,6 @@ export default function FundingRatePanel({ coin, coinIndex, refreshKey }: Props)
               );
             })}
           </div>
-
-          {/* Trailing average APR over each horizon — at a glance, the funding
-              a trader can expect to carry while holding. The selected window is
-              highlighted to tie it to the line drawn on the chart. */}
-          {view.avgs.length > 0 && (
-            <div
-              className="fr-avg-strip"
-              role="group"
-              aria-label="Average funding APR by horizon"
-            >
-              <span className="fr-avg-strip-label">Avg APR</span>
-              {view.avgs.map((a) => (
-                <button
-                  key={a.label}
-                  type="button"
-                  className={`fr-avg-pill${a.hours === hours ? " active" : ""}`}
-                  onClick={() => setHours(a.hours)}
-                  aria-pressed={a.hours === hours}
-                  title={`Show ${a.label} average on chart`}
-                >
-                  <span className="fr-avg-pill-win">{a.label}</span>
-                  <span
-                    className={`fr-avg-pill-val ${a.apr >= 0 ? "up" : "down"}`}
-                  >
-                    {fmtApr(a.apr)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          )}
 
           <div
             className="fr-chart-wrap"
@@ -788,6 +770,241 @@ export default function FundingRatePanel({ coin, coinIndex, refreshKey }: Props)
           </div>
         </>
       )}
+      </div>
+
+      {/* Boros funding hedge: its own island, kept visually separate from the
+          funding-rate panel above so the two don't read as one block. Self-hides
+          for coins Boros doesn't list. */}
+      {view && <BorosHedge coin={coin} refreshKey={refreshKey} />}
     </section>
+  );
+}
+
+// --- Boros funding hedge -----------------------------------------------------
+
+function fmtPct1(n: number): string {
+  return n.toFixed(1) + "%";
+}
+
+function fmtUsdCompact(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) return "—";
+  if (n >= 1e9) return "$" + (n / 1e9).toFixed(1) + "B";
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return "$" + (n / 1e3).toFixed(0) + "K";
+  return "$" + n.toFixed(0);
+}
+
+function fmtMaturity(ms: number): string {
+  const d = new Date(ms);
+  const mon = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ][d.getMonth()];
+  return `${d.getDate()} ${mon}`;
+}
+
+function BorosHedge({ coin, refreshKey }: { coin: string; refreshKey: number }) {
+  const [market, setMarket] = useState<BorosMarket | null>(null);
+  const [history, setHistory] = useState<BorosImpliedPoint[] | null>(null);
+  // Tri-state so we can distinguish "still loading" from "no market for this
+  // coin" (the common case — Boros lists only a handful of underlyings).
+  const [state, setState] = useState<"loading" | "none" | "ready">("loading");
+
+  useEffect(() => {
+    let cancelled = false;
+    setState("loading");
+    setMarket(null);
+    setHistory(null);
+    fetchBorosMarket(coin)
+      .then((m) => {
+        if (cancelled) return;
+        if (!m) {
+          setState("none");
+          return;
+        }
+        setMarket(m);
+        setState("ready");
+        // Sparkline is a nice-to-have; a failure here shouldn't blank the card.
+        fetchBorosImpliedHistory(m.marketId)
+          .then((h) => {
+            if (!cancelled) setHistory(h);
+          })
+          .catch(() => {});
+      })
+      .catch(() => {
+        // Network hiccup or schema drift — hide rather than show a broken card.
+        if (!cancelled) setState("none");
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [coin, refreshKey]);
+
+  if (state !== "ready" || !market) return null;
+
+  const { impliedAprPct: fixed, floatingAprPct: floating, avg30dAprPct: avg } =
+    market;
+  // Locking the fixed rate is cheaper than the recent floating average by this
+  // much — the "you save" number from the trader's (funding-paying long) view.
+  const saveVsAvg = avg != null ? avg - fixed : null;
+
+  return (
+    <div className="fr-boros">
+      <div className="fr-boros-head">
+        <span className="fr-boros-title">
+          Boros hedge<span className="fr-boros-sym"> · {market.underlying}</span>
+        </span>
+        <span className="fr-boros-mat">
+          {Math.round(market.daysToMaturity)}d · {fmtMaturity(market.maturityMs)}
+        </span>
+      </div>
+
+      <div className="fr-boros-rates">
+        <div className="fr-boros-rate primary">
+          <span className="fr-boros-rate-label">Lock fixed</span>
+          <span className="fr-boros-rate-val">{fmtPct1(fixed)}</span>
+        </div>
+        <div className="fr-boros-rate">
+          <span className="fr-boros-rate-label">Floating now</span>
+          <span className={`fr-boros-rate-val ${floating >= 0 ? "up" : "down"}`}>
+            {fmtPct1(floating)}
+          </span>
+        </div>
+        <div className="fr-boros-rate">
+          <span className="fr-boros-rate-label">30d avg</span>
+          <span className="fr-boros-rate-val">
+            {avg != null ? fmtPct1(avg) : "—"}
+          </span>
+        </div>
+      </div>
+
+      {saveVsAvg != null && (
+        <div className={`fr-boros-edge ${saveVsAvg >= 0 ? "good" : "bad"}`}>
+          {saveVsAvg >= 0
+            ? `Locking fixed saves ${fmtPct1(saveVsAvg)} vs 30d avg`
+            : `Fixed costs ${fmtPct1(-saveVsAvg)} over 30d avg`}
+        </div>
+      )}
+
+      <BorosSparkline points={history} fixed={fixed} />
+
+      <div className="fr-boros-foot">
+        <span>Vol {fmtUsdCompact(market.vol24hUsd)} · OI {fmtUsdCompact(market.oiUsd)}</span>
+        <a
+          className="fr-boros-cta"
+          href={market.url}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          Hedge on Boros ↗
+        </a>
+      </div>
+    </div>
+  );
+}
+
+const BSPARK_W = 320;
+const BSPARK_H = 40;
+const BSPARK_PAD = 4;
+
+// Compact fixed-rate (implied APR) trend. Shows where today's lockable rate
+// sits within its own recent range — context for whether the hedge is cheap.
+// Hovering snaps to the nearest daily point and reads out its date + rate.
+function BorosSparkline({
+  points,
+  fixed,
+}: {
+  points: BorosImpliedPoint[] | null;
+  fixed: number;
+}) {
+  const svgRef = useRef<SVGSVGElement>(null);
+  const [hoverIdx, setHoverIdx] = useState<number | null>(null);
+
+  // Hooks must run unconditionally, so bail only after they're declared.
+  if (!points || points.length < 2) return null;
+
+  const n = points.length;
+  const ys = points.map((p) => p.aprPct);
+  const min = Math.min(...ys, fixed);
+  const max = Math.max(...ys, fixed);
+  const span = max - min || 1;
+  const innerW = BSPARK_W - BSPARK_PAD * 2;
+  const innerH = BSPARK_H - BSPARK_PAD * 2;
+
+  const x = (i: number) => BSPARK_PAD + (i / (n - 1)) * innerW;
+  const y = (v: number) => BSPARK_PAD + (1 - (v - min) / span) * innerH;
+
+  const d = points
+    .map((p, i) => `${i === 0 ? "M" : "L"}${x(i).toFixed(1)},${y(p.aprPct).toFixed(1)}`)
+    .join(" ");
+  const lastX = x(n - 1);
+  const lastY = y(points[n - 1].aprPct);
+
+  const handleMove = (e: React.MouseEvent<HTMLDivElement>) => {
+    const svg = svgRef.current;
+    if (!svg) return;
+    const rect = svg.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const frac = (e.clientX - rect.left) / rect.width;
+    const idx = Math.max(0, Math.min(n - 1, Math.round(frac * (n - 1))));
+    setHoverIdx(idx);
+  };
+  const handleLeave = () => setHoverIdx(null);
+
+  const hover =
+    hoverIdx !== null && hoverIdx < n
+      ? (() => {
+          const p = points[hoverIdx];
+          const hx = x(hoverIdx);
+          const frac = hx / BSPARK_W;
+          const anchor = frac < 0.3 ? "left" : frac > 0.7 ? "right" : "center";
+          return { p, hx, hy: y(p.aprPct), leftPct: frac * 100, anchor };
+        })()
+      : null;
+
+  return (
+    <div
+      className="fr-boros-spark-wrap"
+      onMouseMove={handleMove}
+      onMouseLeave={handleLeave}
+    >
+      <svg
+        ref={svgRef}
+        className="fr-boros-spark"
+        viewBox={`0 0 ${BSPARK_W} ${BSPARK_H}`}
+        preserveAspectRatio="none"
+      >
+        <path className="fr-boros-spark-line" d={d} />
+        {hover && (
+          <line
+            className="fr-crosshair"
+            x1={hover.hx}
+            x2={hover.hx}
+            y1={0}
+            y2={BSPARK_H}
+          />
+        )}
+        <circle
+          className="fr-boros-spark-dot"
+          cx={hover ? hover.hx : lastX}
+          cy={hover ? hover.hy : lastY}
+          r={2.4}
+        />
+      </svg>
+
+      {hover && (
+        <div
+          className={`fr-tooltip ${hover.anchor}`}
+          style={{ left: `${hover.leftPct}%` }}
+        >
+          <div className="fr-tooltip-date">{fmtMaturity(hover.p.t)}</div>
+          <div className="fr-tooltip-row">
+            <span className="fr-tooltip-key boros" aria-hidden="true" />
+            <span className="fr-tooltip-name">Fixed APR</span>
+            <span className="fr-tooltip-val">{fmtPct1(hover.p.aprPct)}</span>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
